@@ -63,6 +63,16 @@ func TestLoadReportsEveryProblem(t *testing.T) {
 	}
 }
 
+func TestLoadReadsTheStorageCap(t *testing.T) {
+	c, err := Load(envMap(map[string]string{"DATABASE_URL": "postgres://x", "STORAGE_CAP_BYTES": "9000000000"}))
+	if err != nil || c.StorageCapBytes != 9_000_000_000 {
+		t.Fatalf("cap %d err %v, want 9000000000", c.StorageCapBytes, err)
+	}
+	if _, err := Load(envMap(map[string]string{"DATABASE_URL": "postgres://x", "STORAGE_CAP_BYTES": "9GB"})); err == nil {
+		t.Fatal("a cap that is not a byte count was accepted")
+	}
+}
+
 func TestLoadEnvFileKeepsRealEnvironment(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.env")
 	content := "# comment\n\nH4H_TEST_FROM_FILE=\"quoted value\"\nH4H_TEST_ALREADY_SET=from-file\n"

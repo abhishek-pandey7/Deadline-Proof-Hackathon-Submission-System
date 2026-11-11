@@ -75,6 +75,14 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if cfg.StorageCapBytes > 0 {
+		if err := submissions.SetStorageCap(ctx, pool, cfg.StorageCapBytes); err != nil {
+			return err
+		}
+	}
+	if l, err := submissions.ReadLedger(ctx, pool); err == nil {
+		log.Info("storage ledger", "used_bytes", l.UsedBytes, "cap_bytes", l.CapBytes, "uploaded_bytes_total", l.UploadedBytesTotal)
+	}
 	if cfg.IsDevelopment() {
 		if err := store.EnsureBucket(ctx); err != nil {
 			return err
@@ -99,9 +107,14 @@ func run() error {
 		},
 	})
 	river.AddWorker(workers, sweep)
+	measure := &submissions.MeasureWorker{Bucket: store}
+	river.AddWorker(workers, measure)
 	periodic := []*river.PeriodicJob{
 		river.NewPeriodicJob(river.PeriodicInterval(time.Minute),
 			func() (river.JobArgs, *river.InsertOpts) { return jobs.ExpireStaleUploads{}, nil },
+			&river.PeriodicJobOpts{RunOnStart: true}),
+		river.NewPeriodicJob(river.PeriodicInterval(10*time.Minute),
+			func() (river.JobArgs, *river.InsertOpts) { return jobs.MeasureStorage{}, nil },
 			&river.PeriodicJobOpts{RunOnStart: true}),
 	}
 	queue, err := river.NewClient(riverpgxv5.New(pool), checks.ClientConfig(workers, *checkWorkers, checks.JobTimeout, 5*time.Minute, periodic))
@@ -110,6 +123,7 @@ func run() error {
 	}
 	subs := submissions.New(pool, store, queue, log, submissions.Options{})
 	sweep.Service = subs
+	measure.Service = subs
 
 	if err := queue.Start(ctx); err != nil {
 		return fmt.Errorf("start workers: %w", err)

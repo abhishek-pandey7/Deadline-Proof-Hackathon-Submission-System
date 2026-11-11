@@ -121,6 +121,13 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.CheckVersion]) er
 				return fmt.Errorf("store %s: %w", r.Name, err)
 			}
 		}
+		for _, r := range results {
+			if d, ok := r.Detail.(submissions.PreviewDetail); ok {
+				if err := submissions.RecordPreview(ctx, tx, id, d.Bytes); err != nil {
+					return err
+				}
+			}
+		}
 		payload, _ := json.Marshal(map[string]any{"version_id": id, "team_id": teamID, "state": final})
 		if _, err := tx.Exec(ctx, `select pg_notify($1, $2)`, submissions.EventsChannel, string(payload)); err != nil {
 			return fmt.Errorf("notify: %w", err)

@@ -233,6 +233,25 @@ func (s *Store) Put(ctx context.Context, key, contentType string, body []byte) e
 	return nil
 }
 
+// Measure sums the size of every object in the bucket. Listing is cheap
+// (one request per 1,000 objects), so it can run every few minutes.
+func (s *Store) Measure(ctx context.Context) (int64, int, error) {
+	var bytes int64
+	var objects int
+	p := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{Bucket: &s.bucket})
+	for p.HasMorePages() {
+		page, err := p.NextPage(ctx)
+		if err != nil {
+			return 0, 0, fmt.Errorf("storage: list objects: %w", err)
+		}
+		for _, o := range page.Contents {
+			bytes += aws.ToInt64(o.Size)
+			objects++
+		}
+	}
+	return bytes, objects, nil
+}
+
 // Delete removes an object. Deleting a missing object is not an error.
 func (s *Store) Delete(ctx context.Context, key string) error {
 	if _, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: &s.bucket, Key: &key}); err != nil && !isCode(err, "NoSuchKey") {

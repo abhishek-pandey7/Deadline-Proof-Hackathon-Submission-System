@@ -246,6 +246,15 @@ func (s *Service) Create(ctx context.Context, userID, teamID string, in CreateIn
 	if tag.RowsAffected() == 0 {
 		return CreateResult{}, errf(CodeStorageFull, "storage for this hackathon is full; contact the organizers")
 	}
+	// And against the account-wide cap, which keeps the whole bucket under
+	// the free tier whatever the per-hackathon budgets add up to.
+	ok, err := reserveGlobal(ctx, tx, in.FileSize)
+	if err != nil {
+		return CreateResult{}, err
+	}
+	if !ok {
+		return CreateResult{}, errf(CodeStorageFull, "storage is full; contact the organizers")
+	}
 
 	id := newUUID()
 	v, err := scanVersion(tx.QueryRow(ctx, `
@@ -518,6 +527,9 @@ func (s *Service) finish(ctx context.Context, v versionRow) (*Version, error) {
 	if _, err := s.queue.InsertTx(ctx, tx, jobs.CheckVersion{VersionID: v.ID}, nil); err != nil {
 		return nil, fmt.Errorf("finish: enqueue checks: %w", err)
 	}
+	if err := countUploaded(ctx, tx, done.File.Size); err != nil {
+		return nil, err
+	}
 	if err := notify(ctx, tx, done.Version); err != nil {
 		return nil, err
 	}
@@ -569,6 +581,9 @@ func (s *Service) expire(ctx context.Context, v versionRow, userID, reason, late
 			return err
 		default:
 			if _, err := tx.Exec(ctx, `update hackathons set reserved_bytes = reserved_bytes - $2 where id = $1`, v.hackathonID, v.File.Size); err != nil {
+				return err
+			}
+			if err := releaseGlobal(ctx, tx, v.File.Size); err != nil {
 				return err
 			}
 			if err := notify(ctx, tx, row.Version); err != nil {

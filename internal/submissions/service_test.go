@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/storage"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/submissions"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/testdb"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/testfix"
@@ -22,8 +23,9 @@ import (
 const partSize = 5 << 20
 
 type env struct {
-	pool *pgxpool.Pool
-	svc  *submissions.Service
+	pool  *pgxpool.Pool
+	svc   *submissions.Service
+	store *storage.Store
 }
 
 func newEnv(t *testing.T) env {
@@ -32,7 +34,7 @@ func newEnv(t *testing.T) env {
 	store := teststore.New(t)
 	svc := submissions.New(pool, store, testfix.Queue(t, pool), slog.New(slog.NewTextHandler(io.Discard, nil)),
 		submissions.Options{PartSize: partSize})
-	return env{pool: pool, svc: svc}
+	return env{pool: pool, svc: svc, store: store}
 }
 
 func input(key string, f testfix.File) submissions.CreateInput {

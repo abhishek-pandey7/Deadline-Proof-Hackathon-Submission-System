@@ -86,6 +86,15 @@ export interface OrganizerStats {
   late_attempts: Record<string, number>;
   failed_checks: Record<string, number>;
   storage: { reserved_bytes: number; budget_bytes: number };
+  ledger: {
+    cap_bytes: number;
+    reserved_bytes: number;
+    uploaded_bytes_total: number;
+    measured_bytes: number | null;
+    measured_objects: number | null;
+    measured_at: string | null;
+    used_bytes: number;
+  };
 }
 
 export interface Preview {

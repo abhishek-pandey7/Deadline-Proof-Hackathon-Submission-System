@@ -37,3 +37,15 @@ func (ExpireStaleUploads) Kind() string { return "expire_stale_uploads" }
 func (ExpireStaleUploads) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{Queue: QueueMaintenance, MaxAttempts: 3}
 }
+
+// MeasureStorage sums the real bucket so the storage limiter can never
+// trust a count that drifted below reality. It runs every 10 minutes.
+type MeasureStorage struct{}
+
+// Kind names the job in River's table.
+func (MeasureStorage) Kind() string { return "measure_storage" }
+
+// InsertOpts puts the measurement on the maintenance queue.
+func (MeasureStorage) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: QueueMaintenance, MaxAttempts: 3}
+}
