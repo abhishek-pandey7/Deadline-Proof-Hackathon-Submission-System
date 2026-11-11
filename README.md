@@ -39,6 +39,11 @@ All writes need `Content-Type: application/json`. Signed-in routes take the `h4h
 | `POST /api/versions/{id}/parts/sign` | Signed PUT URLs for chunks, each locked to its exact size and never valid past the grace window |
 | `GET /api/versions/{id}/parts` | Which chunks storage already has, for resuming |
 | `POST /api/versions/{id}/complete` | Assemble the file and queue its checks (exactly one job per version) |
+| `GET /api/versions/{id}/download`, `GET /api/versions/{id}/preview` | 60-second signed links to the file and its preview |
+| `GET /api/teams/{id}/events` | Server-sent events: each committed state change, `resync` after a reconnect |
+| `GET /api/organizer/stats`, `GET /api/organizer/events`, `GET /api/organizer/export.csv` | Organizers only: live counts, their stream, and one CSV row per team |
+
+Live updates come from Postgres `LISTEN/NOTIFY`: every state change notifies inside its own transaction, so a browser never hears about a change that did not commit. `DATABASE_URL` must be Neon's direct host, since the pooler drops `LISTEN`.
 
 ## Test
 
