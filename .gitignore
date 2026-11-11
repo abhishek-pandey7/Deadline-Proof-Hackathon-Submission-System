@@ -1,0 +1,14 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Build output
+/bin/
+*.exe
+web/node_modules/
+web/dist/
+
+# Load-test and coverage output
+/loadtest/results/
+coverage.out
