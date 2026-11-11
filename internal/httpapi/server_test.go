@@ -13,10 +13,12 @@ import (
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/testdb"
 )
 
-func newTestServer(t *testing.T) *httptest.Server {
+var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
+
+// newBareServer serves the API without storage, for endpoints that need none.
+func newBareServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	pool := testdb.New(t)
-	srv := httptest.NewServer(httpapi.New(pool, slog.New(slog.NewTextHandler(io.Discard, nil))))
+	srv := httptest.NewServer(httpapi.New(httpapi.Deps{DB: testdb.New(t), Log: quiet}))
 	t.Cleanup(srv.Close)
 	return srv
 }
@@ -37,7 +39,7 @@ func getJSON(t *testing.T, url string, into any) *http.Response {
 }
 
 func TestHealthzReportsDatabaseOK(t *testing.T) {
-	srv := newTestServer(t)
+	srv := newBareServer(t)
 	var body map[string]string
 	res := getJSON(t, srv.URL+"/healthz", &body)
 	if res.StatusCode != http.StatusOK {
@@ -55,7 +57,7 @@ func TestHealthzReportsDatabaseOK(t *testing.T) {
 }
 
 func TestTimeComesFromTheDatabaseClock(t *testing.T) {
-	srv := newTestServer(t)
+	srv := newBareServer(t)
 	var body struct {
 		Now time.Time `json:"now"`
 	}
@@ -72,7 +74,7 @@ func TestTimeComesFromTheDatabaseClock(t *testing.T) {
 }
 
 func TestUnknownAPIRouteReturnsJSON404(t *testing.T) {
-	srv := newTestServer(t)
+	srv := newBareServer(t)
 	var body struct {
 		Error struct {
 			Code string `json:"code"`
@@ -85,7 +87,7 @@ func TestUnknownAPIRouteReturnsJSON404(t *testing.T) {
 }
 
 func TestHealthzRejectsWrongMethod(t *testing.T) {
-	srv := newTestServer(t)
+	srv := newBareServer(t)
 	res, err := http.Post(srv.URL+"/healthz", "application/json", nil)
 	if err != nil {
 		t.Fatal(err)
