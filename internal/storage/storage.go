@@ -3,9 +3,11 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"time"
@@ -199,6 +201,38 @@ func (s *Store) Size(ctx context.Context, key string) (int64, error) {
 	return aws.ToInt64(out.ContentLength), nil
 }
 
+// Download streams an object into w and returns how many bytes it wrote.
+func (s *Store) Download(ctx context.Context, key string, w io.Writer) (int64, error) {
+	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{Bucket: &s.bucket, Key: &key})
+	if err != nil {
+		if isCode(err, "NoSuchKey") || isCode(err, "NotFound") {
+			return 0, ErrNotFound
+		}
+		return 0, fmt.Errorf("storage: get object: %w", err)
+	}
+	defer out.Body.Close()
+	n, err := io.Copy(w, out.Body)
+	if err != nil {
+		return n, fmt.Errorf("storage: read object: %w", err)
+	}
+	return n, nil
+}
+
+// Put stores a small object, such as a preview image, replacing any old one.
+func (s *Store) Put(ctx context.Context, key, contentType string, body []byte) error {
+	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:        &s.bucket,
+		Key:           &key,
+		Body:          bytes.NewReader(body),
+		ContentLength: aws.Int64(int64(len(body))),
+		ContentType:   aws.String(contentType),
+	})
+	if err != nil {
+		return fmt.Errorf("storage: put object: %w", err)
+	}
+	return nil
+}
+
 // Delete removes an object. Deleting a missing object is not an error.
 func (s *Store) Delete(ctx context.Context, key string) error {
 	if _, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: &s.bucket, Key: &key}); err != nil && !isCode(err, "NoSuchKey") {
@@ -207,13 +241,17 @@ func (s *Store) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
-// PresignGet signs a short-lived download that names the file for the browser.
-func (s *Store) PresignGet(ctx context.Context, key, fileName string, ttl time.Duration) (string, error) {
-	req, err := s.presign.PresignGetObject(ctx, &s3.GetObjectInput{
-		Bucket:                     &s.bucket,
-		Key:                        &key,
-		ResponseContentDisposition: aws.String(fmt.Sprintf("attachment; filename=%q", fileName)),
-	}, s3.WithPresignExpires(ttl))
+// PresignGet signs a short-lived download. A fileName makes the browser save
+// the file under that name; a contentType sets the type it is served as.
+func (s *Store) PresignGet(ctx context.Context, key, fileName, contentType string, ttl time.Duration) (string, error) {
+	in := &s3.GetObjectInput{Bucket: &s.bucket, Key: &key}
+	if fileName != "" {
+		in.ResponseContentDisposition = aws.String(fmt.Sprintf("attachment; filename=%q", fileName))
+	}
+	if contentType != "" {
+		in.ResponseContentType = aws.String(contentType)
+	}
+	req, err := s.presign.PresignGetObject(ctx, in, s3.WithPresignExpires(ttl))
 	if err != nil {
 		return "", fmt.Errorf("storage: presign get: %w", err)
 	}
