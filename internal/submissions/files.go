@@ -59,6 +59,8 @@ type PreviewDetail struct {
 	Path        string `json:"path,omitempty"`
 	Text        string `json:"text,omitempty"`
 	Reason      string `json:"reason,omitempty"`
+	// Bytes is the size of a stored preview image, counted in the ledger.
+	Bytes int64 `json:"bytes,omitempty"`
 }
 
 // PreviewView is a preview ready for the browser.

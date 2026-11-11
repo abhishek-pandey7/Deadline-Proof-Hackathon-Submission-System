@@ -75,5 +75,10 @@ CI runs the same suite with the race detector on every push (`.github/workflows/
 | `DATABASE_URL` | Postgres connection string; use Neon's direct (non-pooler) host |
 | `HTTP_ADDR` / `PORT` | Listen address; `PORT` is what Render sets |
 | `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | Object storage |
+| `STORAGE_CAP_BYTES` | Account-wide cap on everything in the bucket (default 9 GB, under R2's 10 GB free tier) |
+
+### Storage cap
+
+Postgres keeps one account-wide count of what the bucket holds (`storage_ledger`): every version reserves its declared size before any upload link exists, expiry gives it back, and preview images add their size. Every 10 minutes a job also lists the real bucket, and the limiter uses whichever number is larger, so a count that drifted can only make it stricter. Each environment keeps its own count: locally it counts MinIO, deployed it counts R2. The organizer dashboard shows the count, the cap, the bytes uploaded since launch and the last measurement.
 
 `dev.env` holds local values. Production values go in `.env` (gitignored); see `.env.example`.

@@ -41,6 +41,8 @@ type Stats struct {
 		ReservedBytes int64 `json:"reserved_bytes"`
 		BudgetBytes   int64 `json:"budget_bytes"`
 	} `json:"storage"`
+	// Ledger is the account-wide count that keeps the bucket under the cap.
+	Ledger submissions.Ledger `json:"ledger"`
 }
 
 // Service runs the organizer queries against the current hackathon.
@@ -72,6 +74,9 @@ func (s Service) Stats(ctx context.Context) (Stats, error) {
 		         where h.id = $1 and `+countedRule+`)`, st.HackathonID).
 		Scan(&st.Teams, &st.TeamsSubmitted); err != nil {
 		return Stats{}, fmt.Errorf("count teams: %w", err)
+	}
+	if st.Ledger, err = submissions.ReadLedger(ctx, s.DB); err != nil {
+		return Stats{}, err
 	}
 
 	st.Versions = map[string]int{"uploading": 0, "checking": 0, "accepted": 0, "needs_fix": 0, "expired": 0}

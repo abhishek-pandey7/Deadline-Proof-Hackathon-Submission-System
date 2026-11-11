@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type OrganizerStats, type User } from "../api";
 import { checkLabel, formatBytes, stateLabel } from "../format";
 import { useLive, useServerNow } from "../hooks";
-import { Countdown, Panel, Skeleton } from "../ui";
+import { Countdown, Panel, ProgressBar, Skeleton } from "../ui";
 import { Shell } from "./Shell";
 
 const lateLabel: Record<string, string> = {
@@ -40,7 +40,7 @@ export function OrganizerPage({ user, onSignOut }: { user: User; onSignOut: () =
 
   const lateTotal = stats ? Object.values(stats.late_attempts).reduce((a, b) => a + b, 0) : 0;
   const failedTotal = stats ? Object.values(stats.failed_checks).reduce((a, b) => a + b, 0) : 0;
-  const storagePct = stats ? Math.round((stats.storage.reserved_bytes / stats.storage.budget_bytes) * 100) : 0;
+  const storagePct = stats ? Math.round((stats.ledger.used_bytes / stats.ledger.cap_bytes) * 100) : 0;
 
   return (
     <Shell user={user} context={stats ? `${stats.hackathon_name}, organizer view` : "Organizer view"} live={live} onSignOut={onSignOut}>
@@ -81,10 +81,31 @@ export function OrganizerPage({ user, onSignOut }: { user: User; onSignOut: () =
           <Panel title={`Failed checks: ${failedTotal}`}>
             <Breakdown rows={Object.entries(stats.failed_checks).map(([k, n]) => [checkLabel[k] ?? k, n])} />
           </Panel>
-          <Panel title="Storage" className="lg:col-span-2">
-            <p className="text-sm text-ink-2">
-              <Num value={formatBytes(stats.storage.reserved_bytes)} /> reserved of {formatBytes(stats.storage.budget_bytes)} ({storagePct}%). New uploads are refused before the limit, so storage never passes it.
-            </p>
+          <Panel title="Storage, whole bucket" className="lg:col-span-2">
+            <div className="flex flex-col gap-4">
+              <ProgressBar value={stats.ledger.used_bytes / stats.ledger.cap_bytes} label="Storage used" />
+              <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
+                <div className="flex flex-col gap-1">
+                  <dt className="text-xs text-ink-3">In use ({storagePct}%)</dt>
+                  <dd><Num value={formatBytes(stats.ledger.used_bytes)} className="text-xl" /></dd>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <dt className="text-xs text-ink-3">Cap</dt>
+                  <dd><Num value={formatBytes(stats.ledger.cap_bytes)} className="text-xl" /></dd>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <dt className="text-xs text-ink-3">Uploaded since launch</dt>
+                  <dd><Num value={formatBytes(stats.ledger.uploaded_bytes_total)} className="text-xl" /></dd>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <dt className="text-xs text-ink-3">Bucket, last measured</dt>
+                  <dd><Num value={stats.ledger.measured_bytes === null ? "not yet" : formatBytes(stats.ledger.measured_bytes)} className="text-xl" /></dd>
+                </div>
+              </dl>
+              <p className="text-sm text-ink-2">
+                New uploads are refused before they would pass the cap, so the bucket stays inside the free tier. The bucket is re-measured every 10 minutes and the larger number is used.
+              </p>
+            </div>
           </Panel>
         </div>
       )}

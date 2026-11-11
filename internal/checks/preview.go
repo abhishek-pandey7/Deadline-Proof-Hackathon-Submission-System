@@ -67,7 +67,7 @@ func (r *Runner) preview(ctx context.Context, t Target, file string, kind fileKi
 			d.Reason = "the preview could not be stored"
 			break
 		}
-		d = submissions.PreviewDetail{Kind: submissions.PreviewImage, Key: PreviewKey(t.VersionID), ContentType: "image/png"}
+		d = submissions.PreviewDetail{Kind: submissions.PreviewImage, Key: PreviewKey(t.VersionID), ContentType: "image/png", Bytes: int64(len(png))}
 	case readme != nil:
 		d = submissions.PreviewDetail{Kind: submissions.PreviewText, Path: readme.Path, Text: readme.Text}
 	case kind.isZip:

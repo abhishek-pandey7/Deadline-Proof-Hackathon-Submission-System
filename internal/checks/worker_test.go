@@ -194,6 +194,52 @@ func TestFileThatDoesNotMatchItsHashNeedsFixAndDoesNotCount(t *testing.T) {
 	}
 }
 
+type fakePDF struct{ png []byte }
+
+func (f fakePDF) RenderFirstPage(context.Context, string) ([]byte, error) { return f.png, nil }
+
+// A rendered preview takes bucket space too, so it is counted, and a
+// retried job that stores it again does not count it twice.
+func TestPreviewImagesAreCountedInTheLedgerOnce(t *testing.T) {
+	pool := testdb.New(t)
+	store := teststore.New(t)
+	worker := newWorker(pool, store)
+	worker.Runner.PDF = fakePDF{png: pngFile(t).Body}
+	client := startWorkers(t, pool, worker, time.Hour)
+	svc := submissions.New(pool, store, client, quiet, submissions.Options{})
+
+	pdf := []byte("%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n")
+	sum := sha256.Sum256(pdf)
+	_, _, id := submit(t, svc, pool, "deck.pdf", pdf, hex.EncodeToString(sum[:]))
+	if state := waitForState(t, pool, id, 30*time.Second); state != "accepted" {
+		t.Fatalf("state = %s, want accepted", state)
+	}
+
+	previewSize := int64(len(pngFile(t).Body))
+	l, err := submissions.ReadLedger(context.Background(), pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := int64(len(pdf)) + previewSize; l.ReservedBytes != want {
+		t.Fatalf("reserved %d, want file + preview = %d", l.ReservedBytes, want)
+	}
+
+	// A second recording of the same preview (a retried job) changes nothing.
+	tx, err := pool.Begin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := submissions.RecordPreview(context.Background(), tx, id, previewSize); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := submissions.ReadLedger(context.Background(), pool); again.ReservedBytes != l.ReservedBytes {
+		t.Fatalf("recording the preview again moved the ledger from %d to %d", l.ReservedBytes, again.ReservedBytes)
+	}
+}
+
 // The crash test. A worker process runs the checks and is killed with
 // SIGKILL (TerminateProcess on Windows) after the checks ran but before it
 // committed. Nothing it did may be visible; River must retry the job on

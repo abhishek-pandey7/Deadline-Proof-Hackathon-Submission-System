@@ -4,6 +4,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/storage"
@@ -22,6 +23,9 @@ type Config struct {
 	HTTPAddr    string
 	DatabaseURL string
 	Storage     storage.Config
+	// StorageCapBytes caps everything in the bucket, account-wide; 0 keeps
+	// the value already in the database (9 GB by default).
+	StorageCapBytes int64
 }
 
 // IsDevelopment reports whether the server runs on a developer machine.
@@ -55,6 +59,13 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 
 	var problems []error
+	if v := get("STORAGE_CAP_BYTES"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n <= 0 {
+			problems = append(problems, fmt.Errorf("STORAGE_CAP_BYTES must be a positive number of bytes, got %q", v))
+		}
+		c.StorageCapBytes = n
+	}
 	switch c.Env {
 	case EnvDevelopment, EnvProduction, EnvTest:
 	default:
