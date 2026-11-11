@@ -1,0 +1,108 @@
+@import "tailwindcss";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+/*
+  One palette: zinc neutrals with a single cobalt accent. Green, amber and
+  red appear only on status. Shape rule: panels 12px, controls 8px, status
+  badges are pills. Light and dark follow the system setting.
+*/
+:root {
+  --page: #f5f6f8;
+  --surface: #fdfdfd;
+  --surface-2: #f0f1f4;
+  --ink: #18181b;
+  --ink-2: #4b4b53;
+  --ink-3: #6b6b74;
+  --line: #e2e3e8;
+  --accent: #2b4fd6;
+  --accent-hover: #2441b8;
+  --accent-ink: #fdfdfd;
+  --accent-tint: #e8edfd;
+  --ok: #15803d;
+  --ok-tint: #e3f6e9;
+  --warn: #a14a06;
+  --warn-tint: #fdf0dc;
+  --bad: #b42318;
+  --bad-tint: #fde8e6;
+  --focus: #2b4fd6;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #0d0d10;
+    --surface: #151518;
+    --surface-2: #1d1d21;
+    --ink: #f2f2f4;
+    --ink-2: #b4b4bc;
+    --ink-3: #95959e;
+    --line: #2b2b31;
+    --accent: #7d96ff;
+    --accent-hover: #98abff;
+    --accent-ink: #0d0d10;
+    --accent-tint: #1d2547;
+    --ok: #5fd28a;
+    --ok-tint: #13291c;
+    --warn: #f3b552;
+    --warn-tint: #2e2210;
+    --bad: #ff8a80;
+    --bad-tint: #33171a;
+    --focus: #98abff;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "SFMono-Regular", monospace;
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-tint: var(--accent-tint);
+  --color-ok: var(--ok);
+  --color-ok-tint: var(--ok-tint);
+  --color-warn: var(--warn);
+  --color-warn-tint: var(--warn-tint);
+  --color-bad: var(--bad);
+  --color-bad-tint: var(--bad-tint);
+  --color-focus: var(--focus);
+}
+
+html {
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
