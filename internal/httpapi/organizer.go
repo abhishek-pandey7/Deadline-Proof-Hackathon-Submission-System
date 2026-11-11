@@ -1,0 +1,46 @@
+package httpapi
+
+import (
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/auth"
+)
+
+// withOrganizer runs h only for organizers. Everyone else gets 404, so the
+// dashboard's existence is not advertised.
+func (s *Server) withOrganizer(h userHandler) http.HandlerFunc {
+	return s.withUser(func(w http.ResponseWriter, r *http.Request, u auth.User) {
+		if !u.IsOrganizer {
+			writeError(w, http.StatusNotFound, "not_found", "not found", nil)
+			return
+		}
+		h(w, r, u)
+	})
+}
+
+func (s *Server) handleOrganizerStats(w http.ResponseWriter, r *http.Request, _ auth.User) {
+	st, err := s.Organizer.Stats(r.Context())
+	if err != nil {
+		s.writeServiceError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
+}
+
+// handleOrganizerEvents streams every team's changes; the dashboard
+// refetches its counts on each one.
+func (s *Server) handleOrganizerEvents(w http.ResponseWriter, r *http.Request, u auth.User) {
+	s.stream(w, r, u, "")
+}
+
+func (s *Server) handleOrganizerCSV(w http.ResponseWriter, r *http.Request, _ auth.User) {
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="submissions-%s.csv"`, time.Now().UTC().Format("20060102-150405")))
+	if err := s.Organizer.WriteCSV(r.Context(), w); err != nil {
+		// Headers are already sent; the truncated file plus the log is all we can do.
+		s.Log.ErrorContext(r.Context(), "csv export", "err", err)
+	}
+}
