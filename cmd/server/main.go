@@ -25,6 +25,7 @@ import (
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/organizer"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/storage"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/submissions"
+	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/webui"
 )
 
 func main() {
@@ -134,6 +135,8 @@ func run() error {
 			Submissions:   subs,
 			Events:        hub,
 			Organizer:     organizer.Service{DB: pool},
+			UI:            webui.FS(),
+			StorageOrigin: cfg.Storage.Endpoint,
 			SecureCookies: !cfg.IsDevelopment(),
 			TrustProxy:    !cfg.IsDevelopment(),
 		}),

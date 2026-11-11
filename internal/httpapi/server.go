@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"log/slog"
 	"mime"
 	"net"
@@ -31,6 +32,10 @@ type Deps struct {
 	Submissions *submissions.Service
 	Events      *events.Hub
 	Organizer   organizer.Service
+	// UI is the built React app (nil when the binary has no UI).
+	UI fs.FS
+	// StorageOrigin is where browsers send parts; the UI's CSP allows it.
+	StorageOrigin string
 	// SecureCookies marks the session cookie Secure (HTTPS only).
 	SecureCookies bool
 	// TrustProxy takes the client IP from the last X-Forwarded-For entry,
@@ -83,6 +88,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "no such endpoint", nil)
 	})
+	mux.Handle("/", s.uiHandler()) // "/api/" above is more specific and wins
 
 	return s.recoverPanics(s.requestID(s.accessLog(securityHeaders(requireJSON(mux)))))
 }

@@ -7,7 +7,7 @@
 /bin/
 *.exe
 web/node_modules/
-web/dist/
+internal/webui/dist/
 
 # Load-test and coverage output
 /loadtest/results/

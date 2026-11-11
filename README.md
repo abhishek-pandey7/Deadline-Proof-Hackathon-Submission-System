@@ -20,6 +20,18 @@ curl http://127.0.0.1:8080/healthz
 
 The server applies its migrations on startup and, in development, creates the MinIO bucket.
 
+For the UI, run the Vite dev server next to it (it proxies `/api` to :8080, so cookies stay same-origin):
+
+```sh
+cd web && npm install && npm run dev    # http://127.0.0.1:5173
+```
+
+To build the single production binary with the UI inside:
+
+```sh
+cd web && npm run build && cd .. && go build -tags embedui -o bin/server ./cmd/server
+```
+
 Seed a hackathon with demo teams (safe to re-run):
 
 ```sh
