@@ -93,6 +93,33 @@ func (s *Server) handleSignParts(w http.ResponseWriter, r *http.Request, u auth.
 	writeJSON(w, http.StatusOK, out)
 }
 
+// handleDownload returns a 60-second signed link to a member's own file.
+func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request, u auth.User) {
+	id := pathID(w, r, "versionID")
+	if id == "" {
+		return
+	}
+	link, err := s.Submissions.DownloadURL(r.Context(), u.ID, id)
+	if err != nil {
+		s.writeServiceError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, link)
+}
+
+func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request, u auth.User) {
+	id := pathID(w, r, "versionID")
+	if id == "" {
+		return
+	}
+	p, err := s.Submissions.Preview(r.Context(), u.ID, id)
+	if err != nil {
+		s.writeServiceError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
 func (s *Server) handleComplete(w http.ResponseWriter, r *http.Request, u auth.User) {
 	id := pathID(w, r, "versionID")
 	if id == "" {

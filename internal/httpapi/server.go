@@ -67,6 +67,8 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/versions/{versionID}/parts", s.withUser(s.handleUploadedParts))
 	mux.HandleFunc("POST /api/versions/{versionID}/parts/sign", s.withUser(s.handleSignParts))
 	mux.HandleFunc("POST /api/versions/{versionID}/complete", s.withUser(s.handleComplete))
+	mux.HandleFunc("GET /api/versions/{versionID}/download", s.withUser(s.handleDownload))
+	mux.HandleFunc("GET /api/versions/{versionID}/preview", s.withUser(s.handlePreview))
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "no such endpoint", nil)

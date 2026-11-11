@@ -16,9 +16,11 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
+	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/checks"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/config"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/db"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/httpapi"
+	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/jobs"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/storage"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/submissions"
 )
@@ -32,6 +34,7 @@ func main() {
 
 func run() error {
 	envFile := flag.String("env-file", "", "optional KEY=VALUE file; real environment variables win")
+	checkWorkers := flag.Int("check-workers", 2, "concurrent check jobs (the free tier has 0.1 CPU)")
 	flag.Parse()
 	if *envFile != "" {
 		if err := config.LoadEnvFile(*envFile); err != nil {
@@ -75,12 +78,46 @@ func run() error {
 		}
 	}
 
-	// Insert-only for now: the check workers run from the same binary later.
-	queue, err := river.NewClient(riverpgxv5.New(pool), &river.Config{})
+	// The check workers and the stale-upload sweep run in this same process,
+	// which fits the single free-tier instance. River enqueues and works jobs
+	// through Postgres, so a second instance would share the work safely.
+	pdf := checks.FindPoppler()
+	log.Info("pdf previews", "renderer_installed", pdf != nil)
+	sweep := &submissions.SweepWorker{}
+	workers := river.NewWorkers()
+	river.AddWorker(workers, &checks.Worker{
+		DB:  pool,
+		Log: log,
+		Runner: &checks.Runner{
+			Store:   store,
+			Links:   checks.NewLinkChecker(checks.LinkOptions{}),
+			PDF:     pdf,
+			Archive: checks.DefaultArchiveLimits,
+		},
+	})
+	river.AddWorker(workers, sweep)
+	periodic := []*river.PeriodicJob{
+		river.NewPeriodicJob(river.PeriodicInterval(time.Minute),
+			func() (river.JobArgs, *river.InsertOpts) { return jobs.ExpireStaleUploads{}, nil },
+			&river.PeriodicJobOpts{RunOnStart: true}),
+	}
+	queue, err := river.NewClient(riverpgxv5.New(pool), checks.ClientConfig(workers, *checkWorkers, checks.JobTimeout, 5*time.Minute, periodic))
 	if err != nil {
 		return fmt.Errorf("river client: %w", err)
 	}
 	subs := submissions.New(pool, store, queue, log, submissions.Options{})
+	sweep.Service = subs
+
+	if err := queue.Start(ctx); err != nil {
+		return fmt.Errorf("start workers: %w", err)
+	}
+	defer func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := queue.Stop(stopCtx); err != nil {
+			log.Warn("stop workers", "err", err)
+		}
+	}()
 
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,

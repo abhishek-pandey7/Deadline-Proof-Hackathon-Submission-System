@@ -40,6 +40,7 @@ type ObjectStore interface {
 	AbortMultipart(ctx context.Context, key, uploadID string) error
 	Size(ctx context.Context, key string) (int64, error)
 	Delete(ctx context.Context, key string) error
+	PresignGet(ctx context.Context, key, fileName, contentType string, ttl time.Duration) (string, error)
 }
 
 // Options tune the service; zero values mean the defaults.
@@ -554,7 +555,8 @@ func checkParts(parts []storage.Part, v versionRow) *Error {
 }
 
 // expire marks an unfinished version expired, gives its bytes back to the
-// storage budget, logs the late attempt and discards the partial upload.
+// storage budget, logs the late attempt (when lateKind is set) and discards
+// the partial upload.
 func (s *Service) expire(ctx context.Context, v versionRow, userID, reason, lateKind string) {
 	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
 		row, err := scanVersion(tx.QueryRow(ctx, `
@@ -573,8 +575,15 @@ func (s *Service) expire(ctx context.Context, v versionRow, userID, reason, late
 				return err
 			}
 		}
+		if lateKind == "" {
+			return nil
+		}
+		var user any
+		if userID != "" {
+			user = userID
+		}
 		_, err = tx.Exec(ctx, `insert into late_attempts (hackathon_id, team_id, user_id, kind) values ($1, $2, $3, $4)`,
-			v.hackathonID, v.TeamID, userID, lateKind)
+			v.hackathonID, v.TeamID, user, lateKind)
 		return err
 	})
 	if err != nil {
