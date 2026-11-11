@@ -388,6 +388,38 @@ func TestGraceWindowIsBytesOnlyAndEnds(t *testing.T) {
 	}
 }
 
+// An upload abandoned mid-way gives its storage back once grace ends, even
+// though no browser ever calls again.
+func TestSweepExpiresAbandonedUploads(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	user, _ := testfix.User(t, e.pool)
+	hack := testfix.Hackathon(t, e.pool, testfix.HackathonOpts{})
+	team := testfix.Team(t, e.pool, hack, user)
+	f := testfix.NewFile(1000)
+
+	abandoned, err := e.svc.Create(ctx, user, team, input("abandon-key1", f))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, err := e.svc.ExpireStale(ctx); err != nil || n != 0 {
+		t.Fatalf("sweep before the deadline expired %d (%v), want 0", n, err)
+	}
+	testfix.Advance(t, e.pool, hack, time.Hour+20*time.Minute)
+	if n, err := e.svc.ExpireStale(ctx); err != nil || n != 1 {
+		t.Fatalf("sweep after grace expired %d (%v), want 1", n, err)
+	}
+	if n := count(t, e.pool, `select count(*) from versions where id = $1 and state = 'expired'`, abandoned.Version.ID); n != 1 {
+		t.Fatal("abandoned upload not expired")
+	}
+	if n := count(t, e.pool, `select reserved_bytes::int from hackathons where id = $1`, hack); n != 0 {
+		t.Fatalf("%d bytes still reserved, want 0", n)
+	}
+	if n := count(t, e.pool, `select count(*) from late_attempts where team_id = $1`, team); n != 0 {
+		t.Fatalf("the sweep logged %d late attempts; it is not a team's attempt", n)
+	}
+}
+
 // A broken last-second re-upload never replaces a good earlier version.
 func TestUnfinishedNewerVersionKeepsTheOlderOneCounting(t *testing.T) {
 	e := newEnv(t)

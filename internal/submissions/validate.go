@@ -37,6 +37,9 @@ func (in *CreateInput) Normalize() {
 	in.Description = strings.TrimSpace(in.Description)
 	in.FileName = strings.TrimSpace(in.FileName)
 	in.FileSHA256 = strings.ToLower(strings.TrimSpace(in.FileSHA256))
+	if in.Links == nil {
+		in.Links = []string{} // a nil slice would be stored as NULL
+	}
 	for i, l := range in.Links {
 		in.Links[i] = strings.TrimSpace(l)
 	}
