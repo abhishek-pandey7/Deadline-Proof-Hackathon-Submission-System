@@ -18,6 +18,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/events"
+	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/organizer"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/ratelimit"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/submissions"
 )
@@ -27,6 +29,8 @@ type Deps struct {
 	DB          *pgxpool.Pool
 	Log         *slog.Logger
 	Submissions *submissions.Service
+	Events      *events.Hub
+	Organizer   organizer.Service
 	// SecureCookies marks the session cookie Secure (HTTPS only).
 	SecureCookies bool
 	// TrustProxy takes the client IP from the last X-Forwarded-For entry,
@@ -41,6 +45,7 @@ type Server struct {
 	loginByEmail *ratelimit.Limiter
 	writes       *ratelimit.Limiter
 	reads        *ratelimit.Limiter
+	streams      streamCounter
 }
 
 // New returns the API as an http.Handler with all middleware applied.
@@ -69,6 +74,11 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/versions/{versionID}/complete", s.withUser(s.handleComplete))
 	mux.HandleFunc("GET /api/versions/{versionID}/download", s.withUser(s.handleDownload))
 	mux.HandleFunc("GET /api/versions/{versionID}/preview", s.withUser(s.handlePreview))
+	mux.HandleFunc("GET /api/teams/{teamID}/events", s.withUser(s.handleTeamEvents))
+
+	mux.HandleFunc("GET /api/organizer/stats", s.withOrganizer(s.handleOrganizerStats))
+	mux.HandleFunc("GET /api/organizer/events", s.withOrganizer(s.handleOrganizerEvents))
+	mux.HandleFunc("GET /api/organizer/export.csv", s.withOrganizer(s.handleOrganizerCSV))
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "no such endpoint", nil)

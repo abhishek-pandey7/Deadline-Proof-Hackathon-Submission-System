@@ -19,8 +19,10 @@ import (
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/checks"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/config"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/db"
+	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/events"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/httpapi"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/jobs"
+	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/organizer"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/storage"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/submissions"
 )
@@ -119,12 +121,19 @@ func run() error {
 		}
 	}()
 
+	// One LISTEN connection feeds every live stream. DATABASE_URL must be the
+	// direct (non-pooler) host for LISTEN to work on Neon.
+	hub := events.NewHub(cfg.DatabaseURL, submissions.EventsChannel, log)
+	go hub.Run(ctx)
+
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,
 		Handler: httpapi.New(httpapi.Deps{
 			DB:            pool,
 			Log:           log,
 			Submissions:   subs,
+			Events:        hub,
+			Organizer:     organizer.Service{DB: pool},
 			SecureCookies: !cfg.IsDevelopment(),
 			TrustProxy:    !cfg.IsDevelopment(),
 		}),

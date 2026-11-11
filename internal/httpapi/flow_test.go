@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,10 +11,13 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/events"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/httpapi"
+	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/organizer"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/submissions"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/testdb"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/testfix"
@@ -26,15 +30,30 @@ type api struct {
 	t    *testing.T
 	srv  *httptest.Server
 	pool *pgxpool.Pool
+	svc  *submissions.Service
+	hub  *events.Hub
 }
 
 func newAPI(t *testing.T) api {
 	t.Helper()
 	pool := testdb.New(t)
 	svc := submissions.New(pool, teststore.New(t), testfix.Queue(t, pool), quiet, submissions.Options{PartSize: partSize})
-	srv := httptest.NewServer(httpapi.New(httpapi.Deps{DB: pool, Log: quiet, Submissions: svc}))
+
+	hub := events.NewHub(pool.Config().ConnString(), submissions.EventsChannel, quiet)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go hub.Run(ctx)
+	select {
+	case <-hub.Ready():
+	case <-time.After(10 * time.Second):
+		t.Fatal("event hub never started listening")
+	}
+
+	srv := httptest.NewServer(httpapi.New(httpapi.Deps{
+		DB: pool, Log: quiet, Submissions: svc, Events: hub, Organizer: organizer.Service{DB: pool},
+	}))
 	t.Cleanup(srv.Close)
-	return api{t: t, srv: srv, pool: pool}
+	return api{t: t, srv: srv, pool: pool, svc: svc, hub: hub}
 }
 
 // client is one browser: it keeps its own cookies.
