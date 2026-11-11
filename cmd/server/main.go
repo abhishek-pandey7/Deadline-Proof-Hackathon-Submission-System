@@ -13,9 +13,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/riverdriver/riverpgxv5"
+
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/config"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/db"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/httpapi"
+	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/storage"
+	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/submissions"
 )
 
 func main() {
@@ -60,9 +65,32 @@ func run() error {
 	}
 	log.Info("migrations done", "applied", applied)
 
+	store, err := storage.New(cfg.Storage)
+	if err != nil {
+		return err
+	}
+	if cfg.IsDevelopment() {
+		if err := store.EnsureBucket(ctx); err != nil {
+			return err
+		}
+	}
+
+	// Insert-only for now: the check workers run from the same binary later.
+	queue, err := river.NewClient(riverpgxv5.New(pool), &river.Config{})
+	if err != nil {
+		return fmt.Errorf("river client: %w", err)
+	}
+	subs := submissions.New(pool, store, queue, log, submissions.Options{})
+
 	srv := &http.Server{
-		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.New(pool, log),
+		Addr: cfg.HTTPAddr,
+		Handler: httpapi.New(httpapi.Deps{
+			DB:            pool,
+			Log:           log,
+			Submissions:   subs,
+			SecureCookies: !cfg.IsDevelopment(),
+			TrustProxy:    !cfg.IsDevelopment(),
+		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		// No WriteTimeout: live status uses long-lived SSE streams.
