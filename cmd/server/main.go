@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -38,7 +39,11 @@ func main() {
 
 func run() error {
 	envFile := flag.String("env-file", "", "optional KEY=VALUE file; real environment variables win")
-	checkWorkers := flag.Int("check-workers", 2, "concurrent check jobs (the free tier has 0.1 CPU)")
+	defaultWorkers := 2
+	if v, err := strconv.Atoi(os.Getenv("CHECK_WORKERS")); err == nil && v > 0 {
+		defaultWorkers = v
+	}
+	checkWorkers := flag.Int("check-workers", defaultWorkers, "concurrent check jobs (CHECK_WORKERS; the free tier has 0.1 CPU)")
 	flag.Parse()
 	if *envFile != "" {
 		if err := config.LoadEnvFile(*envFile); err != nil {

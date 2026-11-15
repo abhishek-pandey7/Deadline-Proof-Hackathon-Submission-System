@@ -2,7 +2,10 @@
 // minutes, the arrival rate climbing toward the end (60 -> 150 per minute over
 // 5 minutes, 150 -> 300 over 3, 300 -> 500 over 2). Each team runs the real
 // flow: create a version, sign its part, PUT the bytes straight to storage,
-// complete. It is the same scenario as loadtest/submit.js for k6.
+// complete. Like the browser client, it retries network failures, overload
+// and storage hiccups with backoff (same idempotency key, re-signing an
+// expired URL), and records how many requests needed a retry. It is the same
+// scenario as loadtest/submit.js for k6.
 //
 //	go run ./cmd/loadtest -base https://deadline-crush-q60y.onrender.com -tokens loadtest/tokens.csv
 package main
@@ -16,11 +19,14 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -32,20 +38,23 @@ type stage struct {
 
 var stages = []stage{{150, 5 * time.Minute}, {300, 3 * time.Minute}, {500, 2 * time.Minute}}
 
-const startRate = 60.0
-
-// File sizes cycle through these: mostly small decks, some bigger.
-var sizes = []int{256 << 10, 256 << 10, 256 << 10, 512 << 10, 1 << 20, 2 << 20}
+const (
+	startRate   = 60.0
+	maxAttempts = 6
+)
 
 type sample struct {
-	step   string
-	status int
-	ms     float64
-	err    string
+	step    string
+	status  int
+	ms      float64
+	at      time.Duration // since the run started
+	err     string
+	attempt int
 }
 
 type recorder struct {
 	mu        sync.Mutex
+	start     time.Time
 	samples   []sample
 	completed int
 	failed    map[string]int
@@ -80,8 +89,18 @@ func main() {
 	skip := flag.Int("skip", 3, "skip the first teams (the demo accounts)")
 	teams := flag.Int("teams", 2000, "submissions to make")
 	scale := flag.Float64("time-scale", 1, "shrink the 10 minutes, e.g. 0.1 for a 1-minute dry run")
+	sizeList := flag.String("sizes", "65536", "comma-separated file sizes in bytes, cycled per team")
 	out := flag.String("out", "loadtest/results", "folder for results.json")
 	flag.Parse()
+
+	var sizes []int
+	for _, s := range strings.Split(*sizeList, ",") {
+		n, err := strconv.Atoi(strings.TrimSpace(s))
+		if err != nil || n < 64 {
+			fail(fmt.Errorf("bad size %q", s))
+		}
+		sizes = append(sizes, n)
+	}
 
 	f, err := os.Open(*tokensPath)
 	if err != nil {
@@ -109,7 +128,6 @@ func main() {
 		Timeout:   2 * time.Minute,
 		Transport: &http.Transport{MaxIdleConns: 1000, MaxIdleConnsPerHost: 500, IdleConnTimeout: 90 * time.Second},
 	}
-	rec := &recorder{failed: map[string]int{}}
 
 	// Wake a sleeping free instance before the clock starts.
 	if res, err := client.Get(*base + "/healthz"); err != nil || res.StatusCode != 200 {
@@ -118,48 +136,43 @@ func main() {
 
 	arrivals := schedule(*teams, *scale)
 	fmt.Printf("deadline crush: %d submissions over %s against %s\n", *teams, arrivals[len(arrivals)-1].Round(time.Second), *base)
-	start := time.Now()
+	rec := &recorder{failed: map[string]int{}, start: time.Now()}
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 400) // at most 400 teams in flight, like k6 maxVUs
 	for i, at := range arrivals {
-		time.Sleep(time.Until(start.Add(at)))
+		time.Sleep(time.Until(rec.start.Add(at)))
 		sem <- struct{}{}
 		wg.Go(func() {
 			defer func() { <-sem }()
-			team, token := rows[i][0], rows[i][1]
 			size := sizes[i%len(sizes)]
-			submit(client, *base, team, token, i, files[size], hashes[size], rec)
+			submit(client, *base, rows[i][0], rows[i][1], i, files[size], hashes[size], rec)
 		})
 		if (i+1)%250 == 0 {
-			fmt.Printf("  %5d started at %6s\n", i+1, time.Since(start).Round(time.Second))
+			fmt.Printf("  %5d started at %6s\n", i+1, time.Since(rec.start).Round(time.Second))
 		}
 	}
 	wg.Wait()
-	elapsed := time.Since(start)
-	report(rec, *teams, elapsed, *base, *out)
+	report(rec, *teams, time.Since(rec.start), *base, *out, sizes)
 }
 
 // schedule returns when each of n arrivals happens, following the rising rate.
 func schedule(n int, scale float64) []time.Duration {
 	var times []time.Duration
-	var acc, t float64 // acc: arrivals owed so far; t: seconds
+	var acc, t, inStage float64
 	rate := startRate
 	const tick = 0.01
-	var elapsedInStage float64
-	si := 0
-	for len(times) < n && si < len(stages) {
+	for si := 0; len(times) < n && si < len(stages); {
 		st := stages[si]
 		dur := st.dur.Seconds()
-		r := rate + (st.to-rate)*(elapsedInStage/dur)
-		acc += r / 60 * tick
+		acc += (rate + (st.to-rate)*(inStage/dur)) / 60 * tick
 		for acc >= 1 && len(times) < n {
 			acc--
 			times = append(times, time.Duration(t*scale*float64(time.Second)))
 		}
 		t += tick
-		elapsedInStage += tick
-		if elapsedInStage >= dur {
-			rate, elapsedInStage = st.to, 0
+		inStage += tick
+		if inStage >= dur {
+			rate, inStage = st.to, 0
 			si++
 		}
 	}
@@ -169,33 +182,59 @@ func schedule(n int, scale float64) []time.Duration {
 	return times
 }
 
+// retryable is what a browser would retry: no answer, overload, a hiccup.
+func retryable(status int) bool { return status == 0 || status == 429 || status >= 500 }
+
+func backoff(attempt int) time.Duration {
+	return time.Duration(math.Min(8, math.Pow(2, float64(attempt-1)))) * time.Second
+}
+
 func submit(c *http.Client, base, team, token string, i int, file []byte, sha string, rec *recorder) {
-	call := func(step, method, url string, body []byte, headers map[string]string) (int, []byte) {
-		req, _ := http.NewRequest(method, url, bytes.NewReader(body))
-		for k, v := range headers {
-			req.Header.Set(k, v)
+	// call sends one request, retrying like the browser client.
+	call := func(step, method, url string, body []byte, headers map[string]string, ok func(int) bool) (int, []byte) {
+		var code int
+		var raw []byte
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			req, _ := http.NewRequest(method, url, bytes.NewReader(body))
+			for k, v := range headers {
+				req.Header.Set(k, v)
+			}
+			t := time.Now()
+			res, err := c.Do(req)
+			s := sample{step: step, ms: float64(time.Since(t).Microseconds()) / 1000, at: t.Sub(rec.start), attempt: attempt}
+			if err != nil {
+				s.err = err.Error()
+				code, raw = 0, nil
+			} else {
+				raw, _ = io.ReadAll(res.Body)
+				res.Body.Close()
+				code, s.status = res.StatusCode, res.StatusCode
+			}
+			rec.add(s)
+			if ok(code) || !retryable(code) {
+				return code, raw
+			}
+			time.Sleep(backoff(attempt))
 		}
-		t := time.Now()
-		res, err := c.Do(req)
-		ms := float64(time.Since(t).Microseconds()) / 1000
-		if err != nil {
-			rec.add(sample{step: step, ms: ms, err: err.Error()})
-			return 0, nil
+		return code, raw
+	}
+	is := func(codes ...int) func(int) bool {
+		return func(c int) bool {
+			for _, x := range codes {
+				if c == x {
+					return true
+				}
+			}
+			return false
 		}
-		b, _ := io.ReadAll(res.Body)
-		res.Body.Close()
-		rec.add(sample{step: step, status: res.StatusCode, ms: ms})
-		return res.StatusCode, b
 	}
 	api := map[string]string{"Authorization": "Bearer " + token, "Content-Type": "application/json"}
 
 	body, _ := json.Marshal(map[string]any{"title": fmt.Sprintf("Load test team %d", i), "description": "", "links": []string{},
 		"file": map[string]any{"name": "deck.pdf", "size": len(file), "sha256": sha}})
 	h := map[string]string{"Idempotency-Key": "loadtest-" + team}
-	for k, v := range api {
-		h[k] = v
-	}
-	code, raw := call("create", "POST", base+"/api/teams/"+team+"/versions", body, h)
+	maps.Copy(h, api)
+	code, raw := call("create", "POST", base+"/api/teams/"+team+"/versions", body, h, is(200, 201))
 	if code != 201 && code != 200 {
 		rec.outcome(false, fmt.Sprintf("create %d", code))
 		return
@@ -206,26 +245,31 @@ func submit(c *http.Client, base, team, token string, i int, file []byte, sha st
 	_ = json.Unmarshal(raw, &created)
 	id := created.Version.ID
 
-	code, raw = call("sign", "POST", base+"/api/versions/"+id+"/parts/sign", []byte(`{"parts":[1]}`), api)
-	if code != 200 {
-		rec.outcome(false, fmt.Sprintf("sign %d", code))
-		return
+	// Sign and PUT, re-signing when storage refuses (an expired URL answers 403).
+	put := 0
+	for round := 1; round <= 3 && put != 200; round++ {
+		code, raw = call("sign", "POST", base+"/api/versions/"+id+"/parts/sign", []byte(`{"parts":[1]}`), api, is(200))
+		if code != 200 {
+			rec.outcome(false, fmt.Sprintf("sign %d", code))
+			return
+		}
+		var signed struct {
+			Parts []struct {
+				Method  string            `json:"method"`
+				URL     string            `json:"url"`
+				Headers map[string]string `json:"headers"`
+			} `json:"parts"`
+		}
+		_ = json.Unmarshal(raw, &signed)
+		p := signed.Parts[0]
+		put, _ = call("storage_put", p.Method, p.URL, file, p.Headers, is(200))
 	}
-	var signed struct {
-		Parts []struct {
-			Method  string            `json:"method"`
-			URL     string            `json:"url"`
-			Headers map[string]string `json:"headers"`
-		} `json:"parts"`
-	}
-	_ = json.Unmarshal(raw, &signed)
-	p := signed.Parts[0]
-	if code, _ = call("storage_put", p.Method, p.URL, file, p.Headers); code != 200 {
-		rec.outcome(false, fmt.Sprintf("put %d", code))
+	if put != 200 {
+		rec.outcome(false, fmt.Sprintf("put %d", put))
 		return
 	}
 
-	code, raw = call("complete", "POST", base+"/api/versions/"+id+"/complete", []byte("{}"), api)
+	code, raw = call("complete", "POST", base+"/api/versions/"+id+"/complete", []byte("{}"), api, is(200))
 	var done struct {
 		Version struct{ State string } `json:"version"`
 	}
@@ -240,6 +284,7 @@ func submit(c *http.Client, base, team, token string, i int, file []byte, sha st
 type stepStats struct {
 	Step     string         `json:"step"`
 	Count    int            `json:"count"`
+	Retries  int            `json:"retries"`
 	Errors   int            `json:"errors"`
 	Statuses map[string]int `json:"statuses"`
 	P50MS    float64        `json:"p50_ms"`
@@ -263,6 +308,9 @@ func stats(name string, ss []sample) stepStats {
 	var sum float64
 	for _, s := range ss {
 		st.Count++
+		if s.attempt > 1 {
+			st.Retries++
+		}
 		if s.err != "" {
 			st.Errors++
 			st.Statuses["network error"]++
@@ -279,13 +327,26 @@ func stats(name string, ss []sample) stepStats {
 	return st
 }
 
-func report(rec *recorder, teams int, elapsed time.Duration, base, outDir string) {
+type minuteStats struct {
+	Minute   int     `json:"minute"`
+	Requests int     `json:"api_requests"`
+	PerSec   float64 `json:"api_requests_per_second"`
+	P50MS    float64 `json:"p50_ms"`
+	P95MS    float64 `json:"p95_ms"`
+}
+
+func report(rec *recorder, teams int, elapsed time.Duration, base, outDir string, sizes []int) {
 	by := map[string][]sample{}
 	var apiSamples []sample
+	perMinute := map[int][]float64{}
 	for _, s := range rec.samples {
 		by[s.step] = append(by[s.step], s)
 		if s.step != "storage_put" {
 			apiSamples = append(apiSamples, s)
+			if s.err == "" {
+				m := int(s.at / time.Minute)
+				perMinute[m] = append(perMinute[m], s.ms)
+			}
 		}
 	}
 	var steps []stepStats
@@ -293,10 +354,19 @@ func report(rec *recorder, teams int, elapsed time.Duration, base, outDir string
 		steps = append(steps, stats(name, by[name]))
 	}
 	api := stats("all API calls", apiSamples)
+	var minutes []minuteStats
+	for m := 0; m <= int(elapsed/time.Minute); m++ {
+		ms := perMinute[m]
+		if len(ms) == 0 {
+			continue
+		}
+		sort.Float64s(ms)
+		minutes = append(minutes, minuteStats{Minute: m + 1, Requests: len(ms), PerSec: float64(len(ms)) / 60, P50MS: percentile(ms, .5), P95MS: percentile(ms, .95)})
+	}
 	result := map[string]any{
 		"base_url": base, "finished_at": time.Now().UTC(), "elapsed_seconds": elapsed.Seconds(),
-		"teams": teams, "completed": rec.completed, "failed": rec.failed,
-		"api": api, "steps": steps,
+		"teams": teams, "completed": rec.completed, "failed": rec.failed, "file_sizes": sizes,
+		"api": api, "steps": steps, "per_minute": minutes,
 	}
 	if err := os.MkdirAll(outDir, 0o755); err == nil {
 		b, _ := json.MarshalIndent(result, "", "  ")
@@ -304,9 +374,13 @@ func report(rec *recorder, teams int, elapsed time.Duration, base, outDir string
 	}
 
 	fmt.Printf("\nfinished in %s: %d of %d submissions completed, failures %v\n", elapsed.Round(time.Second), rec.completed, teams, rec.failed)
-	fmt.Printf("%-16s %6s %7s %7s %7s %7s  %s\n", "step", "count", "p50", "p95", "p99", "max", "statuses")
+	fmt.Printf("%-16s %6s %7s %7s %7s %7s %7s  %s\n", "step", "count", "retries", "p50", "p95", "p99", "max", "statuses")
 	for _, s := range append(steps, api) {
-		fmt.Printf("%-16s %6d %6.0fms %6.0fms %6.0fms %6.0fms  %v\n", s.Step, s.Count, s.P50MS, s.P95MS, s.P99MS, s.MaxMS, s.Statuses)
+		fmt.Printf("%-16s %6d %7d %6.0fms %6.0fms %6.0fms %6.0fms  %v\n", s.Step, s.Count, s.Retries, s.P50MS, s.P95MS, s.P99MS, s.MaxMS, s.Statuses)
+	}
+	fmt.Println("\nAPI latency by minute (client side):")
+	for _, m := range minutes {
+		fmt.Printf("  minute %2d: %5d requests (%5.1f/s)  p50 %5.0fms  p95 %5.0fms\n", m.Minute, m.Requests, m.PerSec, m.P50MS, m.P95MS)
 	}
 }
 
