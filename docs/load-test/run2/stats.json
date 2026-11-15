@@ -1,0 +1,42 @@
+{
+ "hackathon_id": "2f386548-1673-4206-9563-6c37c4ed6cd9",
+ "hackathon_name": "Hack4Hack 2026",
+ "window": {
+  "deadline_at": "2026-11-30T13:39:42.939729Z",
+  "grace_ends_at": "2026-11-30T13:54:42.939729Z",
+  "server_time": "2026-11-15T13:54:20.081883Z"
+ },
+ "teams": 4103,
+ "teams_submitted": 3941,
+ "versions": {
+  "accepted": 3374,
+  "checking": 567,
+  "expired": 0,
+  "needs_fix": 0,
+  "uploading": 60
+ },
+ "late_attempts": {
+  "complete_after_grace": 0,
+  "create_after_deadline": 0,
+  "sign_after_grace": 0
+ },
+ "failed_checks": {
+  "archive": 0,
+  "file_type": 0,
+  "integrity": 0,
+  "links": 0
+ },
+ "storage": {
+  "reserved_bytes": 1612185818,
+  "budget_bytes": 8589934592
+ },
+ "ledger": {
+  "cap_bytes": 9000000000,
+  "reserved_bytes": 1612189428,
+  "uploaded_bytes_total": 1556877044,
+  "measured_bytes": 1561071348,
+  "measured_objects": 3944,
+  "measured_at": "2026-11-15T13:54:15.45694Z",
+  "used_bytes": 1612189428
+ }
+}
