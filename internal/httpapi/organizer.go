@@ -35,6 +35,18 @@ func (s *Server) handleOrganizerEvents(w http.ResponseWriter, r *http.Request, u
 	s.stream(w, r, u, "")
 }
 
+// handleLatency reports server-side latency per endpoint since the last
+// reset: time spent in this server, without the client's network.
+func (s *Server) handleLatency(w http.ResponseWriter, _ *http.Request, _ auth.User) {
+	since, routes, all := s.latency.snapshot()
+	writeJSON(w, http.StatusOK, map[string]any{"since": since, "overall": all, "routes": routes})
+}
+
+func (s *Server) handleLatencyReset(w http.ResponseWriter, _ *http.Request, _ auth.User) {
+	s.latency.reset()
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleOrganizerCSV(w http.ResponseWriter, r *http.Request, _ auth.User) {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
