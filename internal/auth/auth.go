@@ -92,6 +92,31 @@ func CreateSession(ctx context.Context, pool *pgxpool.Pool, userID string) (stri
 	return token, nil
 }
 
+// CreateSessions opens one session per user in batched round trips and
+// returns the raw tokens in the same order. Used to log the load test's
+// teams in ahead of time.
+func CreateSessions(ctx context.Context, pool *pgxpool.Pool, userIDs []string) ([]string, error) {
+	tokens := make([]string, len(userIDs))
+	ttl := fmt.Sprintf("%d seconds", int(SessionTTL.Seconds()))
+	for start := 0; start < len(userIDs); start += 500 {
+		end := min(start+500, len(userIDs))
+		batch := &pgx.Batch{}
+		for i := start; i < end; i++ {
+			raw := make([]byte, 32)
+			if _, err := rand.Read(raw); err != nil {
+				return nil, fmt.Errorf("auth: token: %w", err)
+			}
+			tokens[i] = base64.RawURLEncoding.EncodeToString(raw)
+			batch.Queue(`insert into sessions (token_hash, user_id, expires_at) values ($1, $2, now() + $3::interval)`,
+				hashToken(tokens[i]), userIDs[i], ttl)
+		}
+		if err := pool.SendBatch(ctx, batch).Close(); err != nil {
+			return nil, fmt.Errorf("auth: store sessions: %w", err)
+		}
+	}
+	return tokens, nil
+}
+
 // UserForToken returns the user behind a live session token.
 func UserForToken(ctx context.Context, pool *pgxpool.Pool, token string) (User, error) {
 	if token == "" || len(token) > 128 {

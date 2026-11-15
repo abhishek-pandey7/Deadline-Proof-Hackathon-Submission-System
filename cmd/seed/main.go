@@ -95,11 +95,19 @@ func run() error {
 				)
 				select id::text from t`, hackathonID, fmt.Sprintf("Team %d", n))
 			for m := 1; m <= *members; m++ {
+				email := fmt.Sprintf("team%d-member%d@demo.test", n, m)
 				batch.Queue(`
 					insert into users (email, display_name, password_hash) values ($1, $2, $3)
 					on conflict (email) do update set password_hash = excluded.password_hash
 					returning id::text`,
-					fmt.Sprintf("team%d-member%d@demo.test", n, m), fmt.Sprintf("Team %d member %d", n, m), hash)
+					email, fmt.Sprintf("Team %d member %d", n, m), hash)
+				// Membership in the same round trip: over a slow link to the
+				// database, one query per member would take minutes.
+				batch.Queue(`
+					insert into team_members (team_id, user_id)
+					select t.id, u.id from teams t, users u
+					where t.hackathon_id = $1 and t.name = $2 and u.email = $3
+					on conflict do nothing`, hackathonID, fmt.Sprintf("Team %d", n), email)
 			}
 		}
 		res := pool.SendBatch(ctx, batch)
@@ -118,9 +126,9 @@ func run() error {
 				if m == 1 {
 					s.firstUserID = userID
 				}
-				if _, err := pool.Exec(ctx, `insert into team_members (team_id, user_id) values ($1, $2) on conflict do nothing`, s.teamID, userID); err != nil {
+				if _, err := res.Exec(); err != nil {
 					res.Close()
-					return fmt.Errorf("membership: %w", err)
+					return fmt.Errorf("team %d member %d membership: %w", n, m, err)
 				}
 			}
 			out = append(out, s)
@@ -140,13 +148,17 @@ func run() error {
 		}
 		w := csv.NewWriter(f)
 		_ = w.Write([]string{"team_id", "token"})
-		for _, s := range out {
-			token, err := auth.CreateSession(ctx, pool, s.firstUserID)
-			if err != nil {
-				f.Close()
-				return err
-			}
-			_ = w.Write([]string{s.teamID, token})
+		userIDs := make([]string, len(out))
+		for i, s := range out {
+			userIDs[i] = s.firstUserID
+		}
+		tokens, err := auth.CreateSessions(ctx, pool, userIDs)
+		if err != nil {
+			f.Close()
+			return err
+		}
+		for i, s := range out {
+			_ = w.Write([]string{s.teamID, tokens[i]})
 		}
 		w.Flush()
 		if err := f.Close(); err != nil {
