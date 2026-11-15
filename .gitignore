@@ -9,6 +9,7 @@
 web/node_modules/
 internal/webui/dist/
 
-# Load-test and coverage output
+# Load-test and coverage output (tokens.csv holds live session tokens)
 /loadtest/results/
+/loadtest/*.csv
 coverage.out

@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -34,6 +36,14 @@ func Open(ctx context.Context, url string, maxConns int32) (*pgxpool.Pool, error
 		cfg.MaxConns = maxConns
 	}
 	cfg.MaxConnIdleTime = 5 * time.Minute
+	if server := os.Getenv("DB_DNS_SERVER"); server != "" {
+		// For laptop tools on networks whose DNS refuses the database host
+		// (some ISP resolvers refuse Neon's): resolve it through server instead.
+		r := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "udp", server)
+		}}
+		cfg.ConnConfig.LookupFunc = r.LookupHost
+	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
