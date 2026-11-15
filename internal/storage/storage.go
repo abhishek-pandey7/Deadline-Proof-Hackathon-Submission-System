@@ -75,7 +75,17 @@ func New(cfg Config) (*Store, error) {
 		// need them, so only send checksums when an operation requires one.
 		RequestChecksumCalculation: aws.RequestChecksumCalculationWhenRequired,
 		ResponseChecksumValidation: aws.ResponseChecksumValidationWhenRequired,
-		HTTPClient:                 &http.Client{Timeout: 60 * time.Second},
+		// Go keeps only 2 idle connections per host by default; under load
+		// every extra request would pay a new TLS handshake, which is slow on
+		// a 0.1-CPU instance. Keep enough warm connections to storage.
+		HTTPClient: &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{
+			Proxy:               http.ProxyFromEnvironment,
+			MaxIdleConns:        200,
+			MaxIdleConnsPerHost: 100,
+			IdleConnTimeout:     90 * time.Second,
+			TLSHandshakeTimeout: 10 * time.Second,
+			ForceAttemptHTTP2:   true,
+		}},
 	})
 	return &Store{client: client, presign: s3.NewPresignClient(client), bucket: cfg.Bucket}, nil
 }
@@ -125,6 +135,30 @@ func (s *Store) PresignPart(ctx context.Context, key, uploadID string, part int3
 	}, s3.WithPresignExpires(ttl))
 	if err != nil {
 		return SignedRequest{}, fmt.Errorf("storage: presign part %d: %w", part, err)
+	}
+	headers := map[string]string{}
+	for name, values := range req.SignedHeader {
+		switch http.CanonicalHeaderKey(name) {
+		case "Host", "Content-Length":
+			continue
+		}
+		if len(values) > 0 {
+			headers[name] = values[0]
+		}
+	}
+	return SignedRequest{Method: req.Method, URL: req.URL, Headers: headers}, nil
+}
+
+// PresignPut signs a single PUT of a whole object, for files that fit in one
+// part. Content-Length is signed, so storage refuses any other size.
+func (s *Store) PresignPut(ctx context.Context, key string, size int64, ttl time.Duration) (SignedRequest, error) {
+	req, err := s.presign.PresignPutObject(ctx, &s3.PutObjectInput{
+		Bucket:        &s.bucket,
+		Key:           &key,
+		ContentLength: aws.Int64(size),
+	}, s3.WithPresignExpires(ttl))
+	if err != nil {
+		return SignedRequest{}, fmt.Errorf("storage: presign put: %w", err)
 	}
 	headers := map[string]string{}
 	for name, values := range req.SignedHeader {

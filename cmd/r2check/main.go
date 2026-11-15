@@ -93,6 +93,27 @@ func run() error {
 	if err := store.AbortMultipart(ctx, key, uploadID); err != nil {
 		return err
 	}
+	// The single-PUT path used for files that fit in one part.
+	whole, err := store.PresignPut(ctx, key+"-whole", 1024, time.Minute)
+	if err != nil {
+		return err
+	}
+	wholeOver, err := put(whole, make([]byte, 4096))
+	if err != nil {
+		return fmt.Errorf("upload to R2 failed: %w", err)
+	}
+	wholeExact, err := put(whole, make([]byte, 1024))
+	if err != nil {
+		return fmt.Errorf("upload to R2 failed: %w", err)
+	}
+	if err := store.Delete(ctx, key+"-whole"); err != nil {
+		return err
+	}
+	fmt.Printf("single PUT: 4096 bytes signed for 1024: HTTP %d, 1024 bytes: HTTP %d\n", wholeOver, wholeExact)
+	if wholeOver < 400 || wholeExact != http.StatusOK {
+		return fmt.Errorf("R2 does NOT enforce the signed size on a single PUT")
+	}
+
 	bytesUsed, objects, err := store.Measure(ctx)
 	if err != nil {
 		return err
