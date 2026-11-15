@@ -64,7 +64,7 @@ export function Login({ onSignedIn }: { onSignedIn: () => void }) {
             <SignIn weight="bold" aria-hidden />
             {busy ? "Signing in" : "Sign in"}
           </Button>
-          <details className="rounded-lg bg-surface-2 px-4 py-3 text-sm text-ink-2">
+          <details open className="rounded-lg bg-surface-2 px-4 py-3 text-sm text-ink-2">
             <summary className="cursor-pointer font-medium text-ink">Trying the demo?</summary>
             <p className="mt-2 leading-relaxed">
               Team member: <span className="font-mono">team1-member1@demo.test</span>
