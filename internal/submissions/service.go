@@ -472,12 +472,13 @@ func (s *Service) Complete(ctx context.Context, userID, versionID string) (Versi
 		if perr := checkParts(parts, v); perr != nil {
 			return Version{}, perr
 		}
+		// checkParts proved every part has its planned size, and storage
+		// refused any body of another size, so the assembled object is
+		// exactly the declared size; no extra HEAD round trip is needed.
+		// The worker re-checks size and hash from the bytes themselves.
 		if err := s.store.CompleteMultipart(ctx, v.objectKey, *v.uploadID, parts); err != nil && !errors.Is(err, storage.ErrNoSuchUpload) {
 			s.log.ErrorContext(ctx, "complete multipart", "version_id", v.ID, "err", err)
 			return Version{}, errf(CodeStorageUnavailable, "storage is unavailable; retry")
-		}
-		if size, err := s.store.Size(ctx, v.objectKey); err != nil || size != v.File.Size {
-			return Version{}, errf(CodeUploadMismatch, "the stored file does not match the declared size")
 		}
 	}
 

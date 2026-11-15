@@ -51,6 +51,7 @@ type Server struct {
 	writes       *ratelimit.Limiter
 	reads        *ratelimit.Limiter
 	streams      streamCounter
+	latency      latency
 }
 
 // New returns the API as an http.Handler with all middleware applied.
@@ -84,6 +85,8 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/organizer/stats", s.withOrganizer(s.handleOrganizerStats))
 	mux.HandleFunc("GET /api/organizer/events", s.withOrganizer(s.handleOrganizerEvents))
 	mux.HandleFunc("GET /api/organizer/export.csv", s.withOrganizer(s.handleOrganizerCSV))
+	mux.HandleFunc("GET /api/organizer/latency", s.withOrganizer(s.handleLatency))
+	mux.HandleFunc("POST /api/organizer/latency/reset", s.withOrganizer(s.handleLatencyReset))
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "no such endpoint", nil)
@@ -275,6 +278,7 @@ func (s *Server) accessLog(next http.Handler) http.Handler {
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
+		s.latency.observe(r, time.Since(start))
 		id, _ := r.Context().Value(requestIDKey).(string)
 		s.Log.InfoContext(r.Context(), "request",
 			"method", r.Method, "path", r.URL.Path, "status", rec.status,
