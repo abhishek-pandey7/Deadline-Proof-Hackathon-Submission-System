@@ -39,7 +39,8 @@ func TestUIServesTheAppShellAndCachesOnlyHashedAssets(t *testing.T) {
 			t.Errorf("%s: Cache-Control %q, the shell must not be cached", p, res.Header.Get("Cache-Control"))
 		}
 		csp := res.Header.Get("Content-Security-Policy")
-		if !strings.Contains(csp, "script-src 'self'") || !strings.Contains(csp, "connect-src 'self' https://acct.r2.cloudflarestorage.com") || !strings.Contains(csp, "frame-ancestors 'none'") {
+		// WebAssembly (the file fingerprint) is allowed; JavaScript eval never is.
+		if !strings.Contains(csp, "script-src 'self' 'wasm-unsafe-eval'") || strings.Contains(csp, "'unsafe-eval'") || !strings.Contains(csp, "connect-src 'self' https://acct.r2.cloudflarestorage.com") || !strings.Contains(csp, "frame-ancestors 'none'") {
 			t.Errorf("%s: CSP %q", p, csp)
 		}
 	}
