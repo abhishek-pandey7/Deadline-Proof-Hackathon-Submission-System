@@ -1,11 +1,13 @@
 package httpapi
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/auth"
+	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/simulate"
 )
 
 // withOrganizer runs h only for organizers. Everyone else gets 404, so the
@@ -45,6 +47,33 @@ func (s *Server) handleLatency(w http.ResponseWriter, _ *http.Request, _ auth.Us
 func (s *Server) handleLatencyReset(w http.ResponseWriter, _ *http.Request, _ auth.User) {
 	s.latency.reset()
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleSimulate starts a demo rush of synthetic teams in the background.
+func (s *Server) handleSimulate(w http.ResponseWriter, r *http.Request, _ auth.User) {
+	if s.Simulator == nil {
+		writeError(w, http.StatusServiceUnavailable, "unavailable", "simulation is off on this server", nil)
+		return
+	}
+	st, err := s.Simulator.Start(r.Context())
+	switch {
+	case errors.Is(err, simulate.ErrBusy):
+		writeError(w, http.StatusConflict, "busy", err.Error(), map[string]any{"status": st})
+	case errors.Is(err, simulate.ErrLimit):
+		writeError(w, http.StatusConflict, "limit", err.Error(), nil)
+	case err != nil:
+		s.writeServiceError(w, r, err)
+	default:
+		writeJSON(w, http.StatusAccepted, st)
+	}
+}
+
+func (s *Server) handleSimulateStatus(w http.ResponseWriter, _ *http.Request, _ auth.User) {
+	if s.Simulator == nil {
+		writeJSON(w, http.StatusOK, simulate.Status{})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.Simulator.Status())
 }
 
 func (s *Server) handleOrganizerCSV(w http.ResponseWriter, r *http.Request, _ auth.User) {

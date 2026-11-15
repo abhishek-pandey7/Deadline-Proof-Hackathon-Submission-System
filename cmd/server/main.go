@@ -23,6 +23,7 @@ import (
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/httpapi"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/jobs"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/organizer"
+	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/simulate"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/storage"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/submissions"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/webui"
@@ -149,6 +150,7 @@ func run() error {
 			Submissions:   subs,
 			Events:        hub,
 			Organizer:     organizer.Service{DB: pool},
+			Simulator:     &simulate.Simulator{DB: pool, Subs: subs, Log: log, HTTP: &http.Client{Timeout: time.Minute}},
 			UI:            webui.FS(),
 			StorageOrigin: cfg.Storage.Endpoint,
 			SecureCookies: !cfg.IsDevelopment(),

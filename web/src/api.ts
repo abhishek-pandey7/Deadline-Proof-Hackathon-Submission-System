@@ -97,6 +97,16 @@ export interface OrganizerStats {
   };
 }
 
+export interface SimulationStatus {
+  running: boolean;
+  started_at: string | null;
+  finished_at: string | null;
+  total: number;
+  completed: number;
+  failed: number;
+  can_start_at: string | null;
+}
+
 export interface Preview {
   kind: "image" | "text" | "none";
   url?: string;
@@ -164,4 +174,6 @@ export const api = {
   preview: (versionId: string) => request<Preview>("GET", `/api/versions/${versionId}/preview`),
 
   organizerStats: () => request<OrganizerStats>("GET", "/api/organizer/stats"),
+  simulationStatus: () => request<SimulationStatus>("GET", "/api/organizer/simulate"),
+  startSimulation: () => request<SimulationStatus>("POST", "/api/organizer/simulate"),
 };

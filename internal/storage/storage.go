@@ -286,6 +286,32 @@ func (s *Store) Measure(ctx context.Context) (int64, int, error) {
 	return bytes, objects, nil
 }
 
+// DeleteMany removes objects in batches of 1,000 (one request each; deletes
+// are free on R2). Missing keys are not errors.
+func (s *Store) DeleteMany(ctx context.Context, keys []string) (int, error) {
+	deleted := 0
+	for start := 0; start < len(keys); start += 1000 {
+		end := min(start+1000, len(keys))
+		objs := make([]types.ObjectIdentifier, 0, end-start)
+		for _, k := range keys[start:end] {
+			objs = append(objs, types.ObjectIdentifier{Key: aws.String(k)})
+		}
+		out, err := s.client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+			Bucket: &s.bucket,
+			Delete: &types.Delete{Objects: objs, Quiet: aws.Bool(true)},
+		})
+		if err != nil {
+			return deleted, fmt.Errorf("storage: delete objects: %w", err)
+		}
+		if len(out.Errors) > 0 {
+			e := out.Errors[0]
+			return deleted, fmt.Errorf("storage: delete %s: %s", aws.ToString(e.Key), aws.ToString(e.Message))
+		}
+		deleted += len(objs)
+	}
+	return deleted, nil
+}
+
 // Delete removes an object. Deleting a missing object is not an error.
 func (s *Store) Delete(ctx context.Context, key string) error {
 	if _, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: &s.bucket, Key: &key}); err != nil && !isCode(err, "NoSuchKey") {
