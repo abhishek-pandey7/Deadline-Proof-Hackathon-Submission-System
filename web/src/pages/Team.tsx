@@ -178,6 +178,7 @@ function SubmitPanel({ teamId, closed, onUploaded }: { teamId: string; closed: b
           setPending(null);
         }
       } else {
+        console.error("upload failed", err);
         setFailure("The upload stopped unexpectedly. Submit again with the same file to resume.");
       }
       onUploaded();

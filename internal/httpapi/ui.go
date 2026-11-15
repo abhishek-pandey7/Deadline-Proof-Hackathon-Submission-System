@@ -65,7 +65,9 @@ func contentSecurityPolicy(storageOrigin string) string {
 	if u, err := url.Parse(storageOrigin); err == nil && u.Scheme != "" && u.Host != "" {
 		extra = " " + u.Scheme + "://" + u.Host
 	}
-	return "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; " +
+	// 'wasm-unsafe-eval' lets the browser run the WebAssembly SHA-256 that
+	// fingerprints a file before upload; it does not allow JavaScript eval.
+	return "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; font-src 'self'; " +
 		"img-src 'self' data:" + extra + "; connect-src 'self'" + extra + "; " +
 		"object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 }
