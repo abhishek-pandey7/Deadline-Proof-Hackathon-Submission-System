@@ -1,0 +1,93 @@
+{
+  "api": {
+    "step": "all API calls",
+    "count": 5921,
+    "errors": 1,
+    "statuses": {
+      "200": 3920,
+      "201": 1990,
+      "409": 1,
+      "422": 9,
+      "network error": 1
+    },
+    "p50_ms": 1140.841,
+    "p95_ms": 14816.623,
+    "p99_ms": 29036.684,
+    "max_ms": 33541.886,
+    "mean_ms": 3502.020253378383
+  },
+  "base_url": "https://deadline-crush-q60y.onrender.com",
+  "completed": 1929,
+  "elapsed_seconds": 657.0772211,
+  "failed": {
+    "complete 0": 1,
+    "create 422": 9,
+    "put 0": 57,
+    "put 500": 2,
+    "put 502": 1,
+    "sign 409": 1
+  },
+  "finished_at": "2026-11-15T13:36:55.096388Z",
+  "steps": [
+    {
+      "step": "create",
+      "count": 2000,
+      "errors": 0,
+      "statuses": {
+        "200": 1,
+        "201": 1990,
+        "422": 9
+      },
+      "p50_ms": 1296.141,
+      "p95_ms": 15501.663,
+      "p99_ms": 31051.428,
+      "max_ms": 33500.929,
+      "mean_ms": 3711.330517
+    },
+    {
+      "step": "sign",
+      "count": 1991,
+      "errors": 0,
+      "statuses": {
+        "200": 1990,
+        "409": 1
+      },
+      "p50_ms": 1008.453,
+      "p95_ms": 13883.109,
+      "p99_ms": 27775.986,
+      "max_ms": 30418.333,
+      "mean_ms": 3211.3724781516817
+    },
+    {
+      "step": "storage_put",
+      "count": 1990,
+      "errors": 57,
+      "statuses": {
+        "200": 1930,
+        "500": 2,
+        "502": 1,
+        "network error": 57
+      },
+      "p50_ms": 2312.562,
+      "p95_ms": 37490.675,
+      "p99_ms": 70508.924,
+      "max_ms": 119844.989,
+      "mean_ms": 9104.68720020694
+    },
+    {
+      "step": "complete",
+      "count": 1930,
+      "errors": 1,
+      "statuses": {
+        "200": 1929,
+        "network error": 1
+      },
+      "p50_ms": 1145.703,
+      "p95_ms": 15965.96,
+      "p99_ms": 27790.144,
+      "max_ms": 33541.886,
+      "mean_ms": 3584.995470191801
+    }
+  ],
+  "teams": 2000
+}

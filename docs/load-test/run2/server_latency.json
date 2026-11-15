@@ -1,0 +1,50 @@
+{
+ "overall": {
+  "route": "all API requests",
+  "count": 5974,
+  "mean_ms": 61.61205724807496,
+  "p50_ms": 20,
+  "p95_ms": 200,
+  "p99_ms": 250,
+  "max_ms": 1235.566
+ },
+ "routes": [
+  {
+   "route": "POST /api/versions/{id}/parts/sign",
+   "count": 1992,
+   "mean_ms": 5.1237986947791105,
+   "p50_ms": 5,
+   "p95_ms": 10,
+   "p99_ms": 40,
+   "max_ms": 70.961
+  },
+  {
+   "route": "POST /api/versions/{id}/complete",
+   "count": 1991,
+   "mean_ms": 157.82714766449016,
+   "p50_ms": 150,
+   "p95_ms": 250,
+   "p99_ms": 300,
+   "max_ms": 1235.566
+  },
+  {
+   "route": "POST /api/teams/{id}/versions",
+   "count": 1990,
+   "mean_ms": 21.920097487437133,
+   "p50_ms": 20,
+   "p95_ms": 50,
+   "p99_ms": 100,
+   "max_ms": 160.568
+  },
+  {
+   "route": "POST /api/auth/login",
+   "count": 1,
+   "mean_ms": 8.978,
+   "p50_ms": 10,
+   "p95_ms": 10,
+   "p99_ms": 10,
+   "max_ms": 8.978
+  }
+ ],
+ "since": "2026-11-15T13:44:10.503276153Z"
+}

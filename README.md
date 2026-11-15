@@ -2,7 +2,16 @@
 
 A project-submission system for a hackathon where 2,000 teams submit in the last 10 minutes before the deadline. It's built so that no submission is lost and the deadline is enforced fairly.
 
-Entry for the Hack4Hack Crew Hiring Challenge 2026 (PS2 · Deadline Crush). The full brief is in [docs/brief.md](docs/brief.md) and the design in [docs/design-doc.docx](docs/design-doc.docx).
+Entry for the Hack4Hack Crew Hiring Challenge 2026 (PS2 · Deadline Crush). The full brief is in [docs/brief.md](docs/brief.md), the design in [docs/design-doc.docx](docs/design-doc.docx) and the load test in [docs/load-test-report.docx](docs/load-test-report.docx).
+
+**Live:** https://deadline-crush-q60y.onrender.com (Render free plan, Singapore; it may take up to a minute to wake). The sign-in page lists the demo accounts: a team member and an organizer, whose dashboard has a **Run simulation** button that makes 100 synthetic teams submit over a minute.
+
+## What it guarantees
+
+- **Nothing lost:** files go straight to storage in signed parts that only accept their exact size; a dropped connection resumes from the parts storage already has; "complete" moves the version to checking and queues exactly one check job in the same transaction.
+- **Fair deadline:** every decision uses Postgres's clock. After the deadline nothing new can start; an upload already started has 15 minutes to finish, bytes only (its SHA-256 was fixed before the deadline). The latest version created before the deadline that finished in grace counts; a broken newer one never replaces a good older one.
+- **Exactly once:** check results, the version's final state and the job's completion commit in one transaction. `TestKilledWorkerIsRetriedWithoutDuplicateResults` kills a worker process mid-job and proves it.
+- **Bounded cost:** an account-wide storage ledger caps the bucket at 9 GB, under R2's free tier, and is checked against the real bucket every 10 minutes.
 
 ## Stack
 
@@ -66,6 +75,19 @@ TEST_DATABASE_URL='postgres://app:app@127.0.0.1:55433/app?sslmode=disable' go te
 ```
 
 CI runs the same suite with the race detector on every push (`.github/workflows/ci.yml`).
+
+## Load test
+
+The deadline crush: 2,000 teams submit within 10 minutes, the rate climbing toward the end (60 to 500 per minute), each running create, sign, PUT to storage, complete, and retrying like the browser does.
+
+```sh
+DB_DNS_SERVER=1.1.1.1:53 go run ./cmd/seed -env-file .env -teams 2003 -bcrypt-cost 4 -tokens-out loadtest/tokens.csv
+go run ./cmd/loadtest -base https://deadline-crush-q60y.onrender.com -tokens loadtest/tokens.csv
+```
+
+`loadtest/submit.js` is the same scenario for k6. Results against the live free-tier deployment: **2,000 of 2,000 submissions completed**, 6 requests retried, **API p95 269 ms** measured from Mumbai (about 110 ms of it network) and **200 ms inside the server**, under the 300 ms target in every minute including the 22.5 requests-per-second peak. Full numbers in [docs/load-test-report.docx](docs/load-test-report.docx); raw files in `docs/load-test/`.
+
+Other tools: `go run ./cmd/r2check -env-file .env` proves against the real bucket that signed URLs refuse any other size; `go run ./cmd/cleanup -env-file .env -dry-run` removes test teams and their files once testing is over.
 
 ## Configuration
 

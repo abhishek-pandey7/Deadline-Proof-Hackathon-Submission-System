@@ -1,0 +1,59 @@
+{
+ "overall": {
+  "route": "all API requests",
+  "count": 5923,
+  "mean_ms": 148.17202329900385,
+  "p50_ms": 100,
+  "p95_ms": 750,
+  "p99_ms": 2000,
+  "max_ms": 1943.234
+ },
+ "routes": [
+  {
+   "route": "POST /api/teams/{id}/versions",
+   "count": 2000,
+   "mean_ms": 144.69069599999992,
+   "p50_ms": 30,
+   "p95_ms": 750,
+   "p99_ms": 2000,
+   "max_ms": 1943.234
+  },
+  {
+   "route": "POST /api/versions/{id}/parts/sign",
+   "count": 1991,
+   "mean_ms": 35.67827624309387,
+   "p50_ms": 10,
+   "p95_ms": 200,
+   "p99_ms": 500,
+   "max_ms": 698.704
+  },
+  {
+   "route": "POST /api/versions/{id}/complete",
+   "count": 1930,
+   "mean_ms": 267.97711139896376,
+   "p50_ms": 250,
+   "p95_ms": 750,
+   "p99_ms": 2000,
+   "max_ms": 1197.104
+  },
+  {
+   "route": "POST /api/organizer/latency/reset",
+   "count": 1,
+   "mean_ms": 2.189,
+   "p50_ms": 5,
+   "p95_ms": 5,
+   "p99_ms": 5,
+   "max_ms": 2.189
+  },
+  {
+   "route": "POST /api/auth/login",
+   "count": 1,
+   "mean_ms": 8.04,
+   "p50_ms": 10,
+   "p95_ms": 10,
+   "p99_ms": 10,
+   "max_ms": 8.04
+  }
+ ],
+ "since": "2026-11-15T13:25:57.135804903Z"
+}
