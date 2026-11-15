@@ -142,7 +142,16 @@ function SubmitPanel({ teamId, closed, onUploaded }: { teamId: string; closed: b
   async function submit(e: FormEvent) {
     e.preventDefault();
     const { ok, linkList } = validate();
-    if (!ok || !file) return;
+    if (!ok || !file) {
+      // Bring the first problem into view: on a long form the error may be
+      // scrolled off screen, which makes the button look broken.
+      setTimeout(() => {
+        const bad = document.querySelector<HTMLElement>('form [aria-invalid="true"]');
+        bad?.scrollIntoView({ behavior: "smooth", block: "center" });
+        bad?.focus({ preventScroll: true });
+      }, 0);
+      return;
+    }
     setFailure(null);
     const controller = new AbortController();
     abort.current = controller;
