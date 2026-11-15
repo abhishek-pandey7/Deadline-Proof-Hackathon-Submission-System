@@ -35,6 +35,7 @@ const EventsChannel = "version_events"
 type ObjectStore interface {
 	CreateMultipart(ctx context.Context, key string) (string, error)
 	PresignPart(ctx context.Context, key, uploadID string, part int32, size int64, ttl time.Duration) (storage.SignedRequest, error)
+	PresignPut(ctx context.Context, key string, size int64, ttl time.Duration) (storage.SignedRequest, error)
 	ListParts(ctx context.Context, key, uploadID string) ([]storage.Part, error)
 	CompleteMultipart(ctx context.Context, key, uploadID string, parts []storage.Part) error
 	AbortMultipart(ctx context.Context, key, uploadID string) error
@@ -284,10 +285,16 @@ func (s *Service) Create(ctx context.Context, userID, teamID string, in CreateIn
 	return CreateResult{Version: v.Version, Window: w}, nil
 }
 
-// ensureMultipart makes sure the version has a multipart upload. Concurrent
-// callers may both create one; only the first is kept and the other aborted.
+// singlePart reports whether the file fits in one part. Such files skip
+// multipart entirely: one signed PUT, no create/list/complete calls to
+// storage, which keeps the API fast for the common small submission. A
+// dropped connection just resends the one part.
+func (v *versionRow) singlePart() bool { return v.PartCount == 1 }
+
+// ensureMultipart makes sure a multi-part version has a multipart upload.
+// Concurrent callers may both create one; only the first is kept.
 func (s *Service) ensureMultipart(ctx context.Context, v *versionRow) error {
-	if v.uploadID != nil || v.State != "uploading" {
+	if v.singlePart() || v.uploadID != nil || v.State != "uploading" {
 		return nil
 	}
 	uploadID, err := s.store.CreateMultipart(ctx, v.objectKey)
@@ -390,7 +397,13 @@ func (s *Service) SignParts(ctx context.Context, userID, versionID string, numbe
 	out := SignResult{ExpiresAt: now.Add(ttl), Window: v.window, Parts: make([]SignedPart, 0, len(numbers))}
 	for _, n := range numbers {
 		size := PartLength(v.File.Size, v.PartSize, n)
-		req, err := s.store.PresignPart(ctx, v.objectKey, *v.uploadID, int32(n), size, ttl)
+		var req storage.SignedRequest
+		var err error
+		if v.singlePart() {
+			req, err = s.store.PresignPut(ctx, v.objectKey, size, ttl)
+		} else {
+			req, err = s.store.PresignPart(ctx, v.objectKey, *v.uploadID, int32(n), size, ttl)
+		}
 		if err != nil {
 			return SignResult{}, fmt.Errorf("sign part %d: %w", n, err)
 		}
@@ -422,7 +435,21 @@ func (s *Service) Uploaded(ctx context.Context, userID, versionID string) (Uploa
 		return UploadStatus{}, err
 	}
 	out := UploadStatus{State: v.State, PartCount: v.PartCount, PartSize: v.PartSize, Uploaded: []PartInfo{}, Window: v.window}
-	if v.State != "uploading" || v.uploadID == nil {
+	if v.State != "uploading" {
+		return out, nil
+	}
+	if v.singlePart() {
+		size, err := s.store.Size(ctx, v.objectKey)
+		switch {
+		case errors.Is(err, storage.ErrNotFound):
+		case err != nil:
+			return UploadStatus{}, errf(CodeStorageUnavailable, "storage is unavailable; retry")
+		case size == v.File.Size:
+			out.Uploaded = append(out.Uploaded, PartInfo{Number: 1, Size: size})
+		}
+		return out, nil
+	}
+	if v.uploadID == nil {
 		return out, nil
 	}
 	parts, err := s.store.ListParts(ctx, v.objectKey, *v.uploadID)
@@ -455,6 +482,19 @@ func (s *Service) Complete(ctx context.Context, userID, versionID string) (Versi
 		s.expire(ctx, v, userID, "upload did not finish before the grace window closed", "complete_after_grace")
 		return Version{}, errf(CodeGraceOver, "the grace window for unfinished uploads has closed")
 	}
+	if v.singlePart() {
+		// One signed PUT whose size storage enforced: one HEAD proves it arrived.
+		size, err := s.store.Size(ctx, v.objectKey)
+		switch {
+		case errors.Is(err, storage.ErrNotFound):
+			return Version{}, &Error{Code: CodePartsMissing, Message: "the file has not been uploaded yet", Details: map[string]any{"missing": []int{1}}}
+		case err != nil:
+			return Version{}, errf(CodeStorageUnavailable, "storage is unavailable; retry")
+		case size != v.File.Size:
+			return Version{}, errf(CodeUploadMismatch, "the stored file does not match the declared size; upload it again")
+		}
+		return s.finishAndReport(ctx, userID, versionID, v)
+	}
 	if v.uploadID == nil {
 		return Version{}, &Error{Code: CodePartsMissing, Message: "no parts uploaded yet", Details: map[string]any{"missing": seq(v.PartCount)}}
 	}
@@ -481,7 +521,11 @@ func (s *Service) Complete(ctx context.Context, userID, versionID string) (Versi
 			return Version{}, errf(CodeStorageUnavailable, "storage is unavailable; retry")
 		}
 	}
+	return s.finishAndReport(ctx, userID, versionID, v)
+}
 
+// finishAndReport commits the move to checking, or explains why it could not.
+func (s *Service) finishAndReport(ctx context.Context, userID, versionID string, v versionRow) (Version, error) {
 	done, err := s.finish(ctx, v)
 	if err != nil {
 		return Version{}, err
@@ -609,6 +653,12 @@ func (s *Service) expire(ctx context.Context, v versionRow, userID, reason, late
 	if v.uploadID != nil {
 		if err := s.store.AbortMultipart(ctx, v.objectKey, *v.uploadID); err != nil {
 			s.log.WarnContext(ctx, "abort multipart after expiry", "version_id", v.ID, "err", err)
+		}
+	}
+	if v.singlePart() {
+		// The PUT may have landed without "complete" ever being called.
+		if err := s.store.Delete(ctx, v.objectKey); err != nil {
+			s.log.WarnContext(ctx, "delete object after expiry", "version_id", v.ID, "err", err)
 		}
 	}
 }

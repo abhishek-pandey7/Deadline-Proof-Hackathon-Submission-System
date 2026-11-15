@@ -59,6 +59,26 @@ func TestSignedPartURLOnlyAcceptsTheSignedSize(t *testing.T) {
 	}
 }
 
+// Files that fit in one part use a single signed PUT; it must be just as
+// strict about size.
+func TestSignedPutURLOnlyAcceptsTheSignedSize(t *testing.T) {
+	store := teststore.New(t)
+	ctx := context.Background()
+	req, err := store.PresignPut(ctx, "whole", 1024, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := put(t, req, make([]byte, 4096)); code < 400 {
+		t.Fatalf("oversized body accepted with status %d", code)
+	}
+	if code := put(t, req, make([]byte, 1024)); code != http.StatusOK {
+		t.Fatalf("correctly sized body got status %d", code)
+	}
+	if size, err := store.Size(ctx, "whole"); err != nil || size != 1024 {
+		t.Fatalf("stored size %d err %v, want 1024", size, err)
+	}
+}
+
 func TestMultipartRoundTrip(t *testing.T) {
 	store := teststore.New(t)
 	ctx := context.Background()
