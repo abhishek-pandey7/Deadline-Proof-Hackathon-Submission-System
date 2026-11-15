@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/httpapi"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/jobs"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/organizer"
+	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/simulate"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/storage"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/submissions"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/webui"
@@ -37,7 +39,11 @@ func main() {
 
 func run() error {
 	envFile := flag.String("env-file", "", "optional KEY=VALUE file; real environment variables win")
-	checkWorkers := flag.Int("check-workers", 2, "concurrent check jobs (the free tier has 0.1 CPU)")
+	defaultWorkers := 2
+	if v, err := strconv.Atoi(os.Getenv("CHECK_WORKERS")); err == nil && v > 0 {
+		defaultWorkers = v
+	}
+	checkWorkers := flag.Int("check-workers", defaultWorkers, "concurrent check jobs (CHECK_WORKERS; the free tier has 0.1 CPU)")
 	flag.Parse()
 	if *envFile != "" {
 		if err := config.LoadEnvFile(*envFile); err != nil {
@@ -149,6 +155,7 @@ func run() error {
 			Submissions:   subs,
 			Events:        hub,
 			Organizer:     organizer.Service{DB: pool},
+			Simulator:     &simulate.Simulator{DB: pool, Subs: subs, Log: log, HTTP: &http.Client{Timeout: time.Minute}},
 			UI:            webui.FS(),
 			StorageOrigin: cfg.Storage.Endpoint,
 			SecureCookies: !cfg.IsDevelopment(),

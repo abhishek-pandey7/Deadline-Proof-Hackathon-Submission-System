@@ -26,3 +26,7 @@ services:
         value: auto
       - key: STORAGE_CAP_BYTES
         value: "9000000000"
+      # 0.1 CPU is shared by the API and the checks; one check at a time
+      # keeps the API responsive during a rush (checks finish afterwards).
+      - key: CHECK_WORKERS
+        value: "1"

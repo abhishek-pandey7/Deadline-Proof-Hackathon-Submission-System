@@ -22,6 +22,7 @@ import (
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/events"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/organizer"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/ratelimit"
+	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/simulate"
 	"github.com/abhishek-pandey7/Deadline-Proof-Hackathon-Submission-System/internal/submissions"
 )
 
@@ -32,6 +33,7 @@ type Deps struct {
 	Submissions *submissions.Service
 	Events      *events.Hub
 	Organizer   organizer.Service
+	Simulator   *simulate.Simulator
 	// UI is the built React app (nil when the binary has no UI).
 	UI fs.FS
 	// StorageOrigin is where browsers send parts; the UI's CSP allows it.
@@ -87,6 +89,8 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/organizer/export.csv", s.withOrganizer(s.handleOrganizerCSV))
 	mux.HandleFunc("GET /api/organizer/latency", s.withOrganizer(s.handleLatency))
 	mux.HandleFunc("POST /api/organizer/latency/reset", s.withOrganizer(s.handleLatencyReset))
+	mux.HandleFunc("POST /api/organizer/simulate", s.withOrganizer(s.handleSimulate))
+	mux.HandleFunc("GET /api/organizer/simulate", s.withOrganizer(s.handleSimulateStatus))
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "no such endpoint", nil)

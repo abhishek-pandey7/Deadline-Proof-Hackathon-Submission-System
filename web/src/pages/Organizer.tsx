@@ -1,9 +1,9 @@
-import { DownloadSimple } from "@phosphor-icons/react";
+import { DownloadSimple, Lightning } from "@phosphor-icons/react";
 import { useCallback, useEffect, useState } from "react";
-import { api, type OrganizerStats, type User } from "../api";
+import { api, ApiError, type OrganizerStats, type SimulationStatus, type User } from "../api";
 import { checkLabel, formatBytes, stateLabel } from "../format";
 import { useLive, useServerNow } from "../hooks";
-import { Countdown, Panel, ProgressBar, Skeleton } from "../ui";
+import { Button, Countdown, Panel, ProgressBar, Skeleton } from "../ui";
 import { Shell } from "./Shell";
 
 const lateLabel: Record<string, string> = {
@@ -26,6 +26,61 @@ function Breakdown({ rows }: { rows: [string, number][] }) {
         </div>
       ))}
     </dl>
+  );
+}
+
+/** Starts a demo rush: 100 synthetic teams submit over about a minute. */
+function SimulatePanel() {
+  const [status, setStatus] = useState<SimulationStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  const load = useCallback(() => {
+    api.simulationStatus().then(setStatus).catch(() => undefined);
+  }, []);
+  useEffect(load, [load]);
+  useEffect(() => {
+    const id = setInterval(() => {
+      setNow(Date.now());
+      if (status?.running) load();
+    }, 1000);
+    return () => clearInterval(id);
+  }, [status?.running, load]);
+
+  async function start() {
+    setError(null);
+    try {
+      setStatus(await api.startSimulation());
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not start the simulation.");
+      load();
+    }
+  }
+
+  const coolingFor = status?.can_start_at && !status.running ? Math.ceil((Date.parse(status.can_start_at) - now) / 1000) : 0;
+  const done = status ? status.completed + status.failed : 0;
+  return (
+    <Panel title="Simulate a deadline rush" className="lg:col-span-2">
+      <div className="flex flex-col gap-4">
+        <p className="max-w-[70ch] text-sm leading-relaxed text-ink-2">
+          100 synthetic teams submit over about a minute, faster toward the end, through the same upload path as real teams: signed upload, file straight to storage, background checks. Watch the counts above climb. Each file is 64 KB.
+        </p>
+        <div className="flex flex-wrap items-center gap-4">
+          <Button onClick={start} disabled={!status || status.running || coolingFor > 0}>
+            <Lightning weight="bold" aria-hidden />
+            {status?.running ? "Running" : "Run simulation"}
+          </Button>
+          {status?.running && <span className="tabular font-mono text-sm text-ink-2" aria-live="polite">{done} of {status.total} submitted{status.failed > 0 ? `, ${status.failed} failed` : ""}</span>}
+          {!status?.running && status?.finished_at && (
+            <span className="text-sm text-ink-2" aria-live="polite">
+              Last run: {status.completed} of {status.total} submitted{status.failed > 0 ? `, ${status.failed} failed` : ""}.{coolingFor > 0 ? ` Next run in ${coolingFor}s.` : ""}
+            </span>
+          )}
+        </div>
+        {status?.running && <ProgressBar value={done / Math.max(1, status.total)} label="Simulation progress" />}
+        {error && <p className="text-sm font-medium text-bad" role="alert">{error}</p>}
+      </div>
+    </Panel>
   );
 }
 
@@ -107,6 +162,7 @@ export function OrganizerPage({ user, onSignOut }: { user: User; onSignOut: () =
               </p>
             </div>
           </Panel>
+          <SimulatePanel />
         </div>
       )}
     </Shell>
